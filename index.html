@@ -6,754 +6,596 @@
   <title>LV95 Koordinaten-Picker</title>
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js" defer></script>
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #1a1a2e;
-      color: #e0e0e0;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
+      background: #1a1a2e; color: #e0e0e0;
+      height: 100vh; display: flex; flex-direction: column; overflow: hidden;
     }
-
     header {
-      background: #16213e;
-      padding: 12px 16px;
+      background: #16213e; padding: 10px 14px;
       border-bottom: 2px solid #0f3460;
-      display: flex;
-      align-items: center;
-      gap: 10px;
+      display: flex; align-items: center; gap: 10px; flex-shrink: 0;
     }
-
     header .logo {
-      width: 28px;
-      height: 28px;
-      background: #e94560;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      font-size: 14px;
-      color: white;
+      width: 26px; height: 26px; background: #e94560; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: bold; font-size: 13px; color: white;
     }
-
-    header h1 {
-      font-size: 15px;
-      font-weight: 600;
-      color: #ffffff;
-    }
-
+    header h1 { font-size: 14px; font-weight: 600; color: #fff; }
     header .badge {
-      margin-left: auto;
-      background: #0f3460;
-      color: #53d8fb;
-      font-size: 10px;
-      padding: 2px 8px;
-      border-radius: 10px;
-      font-weight: 600;
-      letter-spacing: 0.5px;
+      margin-left: auto; background: #0f3460; color: #53d8fb;
+      font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600;
     }
-
     .status-bar {
-      background: #0f3460;
-      padding: 8px 16px;
-      font-size: 12px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      background: #0f3460; padding: 6px 14px; font-size: 11px;
+      display: flex; align-items: center; gap: 8px; flex-shrink: 0;
     }
-
     .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #aaa;
-      flex-shrink: 0;
+      width: 8px; height: 8px; border-radius: 50%; background: #aaa; flex-shrink: 0;
     }
-
     .status-dot.connected { background: #4caf50; }
-    .status-dot.waiting   { background: #ff9800; animation: pulse 1.2s infinite; }
+    .status-dot.waiting   { background: #ff9800; animation: blink 1s infinite; }
     .status-dot.error     { background: #e94560; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.3; }
+    .model-bar {
+      background: #12213a; padding: 5px 14px; font-size: 11px; color: #53d8fb;
+      border-bottom: 1px solid #0f3460; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
     }
-
     .controls {
-      padding: 14px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      border-bottom: 1px solid #0f3460;
+      padding: 10px 14px; display: flex; flex-direction: column;
+      gap: 8px; border-bottom: 1px solid #0f3460; flex-shrink: 0;
     }
-
+    .hint-box {
+      background: #0a2240; border: 1px solid #1565c0;
+      border-radius: 6px; padding: 8px 12px;
+      font-size: 11px; color: #90caf9; line-height: 1.6;
+    }
+    .hint-box.picking {
+      background: #1a1200; border-color: #ff6b00; color: #ffcc80;
+    }
     .btn {
-      padding: 9px 16px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-      transition: all 0.15s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 7px;
+      padding: 9px 14px; border: none; border-radius: 6px;
+      cursor: pointer; font-size: 13px; font-weight: 600;
+      transition: all .15s;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
     }
-
-    .btn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-pick { background: #e94560; color: white; }
+    .btn-pick:hover:not(:disabled) { background: #c73652; }
+    .btn-pick.active {
+      background: #e65100; color: white;
+      animation: glow .9s infinite alternate;
     }
-
-    .btn-primary {
-      background: #e94560;
-      color: white;
+    @keyframes glow {
+      from { box-shadow: 0 0 4px rgba(230,81,0,.4); }
+      to   { box-shadow: 0 0 14px rgba(230,81,0,.9); }
     }
-    .btn-primary:hover:not(:disabled) { background: #c73652; }
-    .btn-primary.active {
-      background: #4caf50;
-      animation: pulse-btn 1.5s infinite;
-    }
-
-    @keyframes pulse-btn {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(76,175,80,0.4); }
-      50%       { box-shadow: 0 0 0 6px rgba(76,175,80,0); }
-    }
-
-    .btn-secondary {
-      background: #16213e;
-      color: #aaa;
-      border: 1px solid #0f3460;
-    }
-    .btn-secondary:hover:not(:disabled) {
-      background: #0f3460;
-      color: #e0e0e0;
-    }
-
-    .btn-danger {
-      background: transparent;
-      color: #e94560;
-      border: 1px solid #e94560;
-    }
-    .btn-danger:hover:not(:disabled) {
-      background: #e94560;
-      color: white;
-    }
-
-    .btn-success {
-      background: #1b5e20;
-      color: #81c784;
-      border: 1px solid #388e3c;
-    }
-    .btn-success:hover:not(:disabled) {
-      background: #2e7d32;
-      color: white;
-    }
-
-    .btn-row {
-      display: flex;
-      gap: 8px;
-    }
-
+    .btn-row { display: flex; gap: 8px; }
     .btn-row .btn { flex: 1; }
+    .btn-danger {
+      background: transparent; color: #e94560; border: 1px solid #e94560;
+    }
+    .btn-danger:hover:not(:disabled) { background: #e94560; color: white; }
+    .btn-success {
+      background: #1b5e20; color: #81c784; border: 1px solid #388e3c;
+    }
+    .btn-success:hover:not(:disabled) { background: #2e7d32; color: white; }
 
-    .crs-info {
-      background: #0f3460;
-      border-radius: 6px;
-      padding: 10px 12px;
-      font-size: 11px;
-      color: #53d8fb;
-      line-height: 1.6;
+    .offset-section {
+      padding: 6px 14px 8px; border-bottom: 1px solid #0f3460; flex-shrink: 0;
     }
-
-    .crs-info strong {
-      color: #ffffff;
-      font-size: 12px;
-      display: block;
-      margin-bottom: 4px;
+    .offset-toggle {
+      font-size: 11px; color: #555; cursor: pointer;
+      display: flex; align-items: center; gap: 5px; user-select: none;
     }
-
-    .table-wrap {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0 16px 16px;
+    .offset-toggle:hover { color: #888; }
+    .offset-fields { display: none; flex-direction: column; gap: 5px; margin-top: 7px; }
+    .offset-fields.open { display: flex; }
+    .offset-row { display: flex; align-items: center; gap: 8px; }
+    .offset-row label { font-size: 10px; color: #666; width: 110px; flex-shrink: 0; }
+    .offset-row input {
+      flex: 1; background: #16213e; border: 1px solid #0f3460;
+      color: #53d8fb; padding: 4px 8px; border-radius: 4px;
+      font-size: 11px; font-family: "Courier New", monospace;
     }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-      margin-top: 12px;
-    }
-
-    thead tr {
-      background: #16213e;
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }
-
-    th {
-      padding: 8px 10px;
-      text-align: left;
-      font-weight: 600;
-      color: #53d8fb;
-      border-bottom: 2px solid #0f3460;
-      white-space: nowrap;
-    }
-
-    td {
-      padding: 7px 10px;
-      border-bottom: 1px solid #0f3460;
-      font-family: "Courier New", monospace;
-      font-size: 11px;
-      color: #ccc;
-    }
-
-    tr:hover td {
-      background: #16213e;
-    }
-
-    td.pt-num {
-      color: #e94560;
-      font-weight: bold;
-      font-size: 13px;
-      text-align: center;
-    }
-
-    td.coord {
-      color: #a5d6a7;
-    }
-
-    .del-btn {
-      background: transparent;
-      border: none;
-      color: #555;
-      cursor: pointer;
-      font-size: 15px;
-      padding: 2px 6px;
-      border-radius: 4px;
-      transition: all 0.15s;
-    }
-    .del-btn:hover {
-      color: #e94560;
-      background: rgba(233,69,96,0.1);
-    }
-
-    .empty-state {
-      text-align: center;
-      padding: 40px 20px;
-      color: #555;
-    }
-
-    .empty-state .icon {
-      font-size: 40px;
-      margin-bottom: 12px;
-    }
-
-    .empty-state p {
-      font-size: 13px;
-      line-height: 1.6;
-    }
+    .offset-note { font-size: 10px; color: #444; margin-top: 4px; line-height: 1.5; }
 
     .counter {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 16px;
-      font-size: 12px;
-      color: #666;
-      border-bottom: 1px solid #0f3460;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 5px 14px; font-size: 11px; color: #555;
+      border-bottom: 1px solid #0f3460; flex-shrink: 0;
     }
+    .counter .num { color: #53d8fb; font-weight: bold; font-size: 13px; }
 
-    .counter span {
-      color: #53d8fb;
-      font-weight: bold;
+    .table-wrap { flex: 1; overflow-y: auto; padding: 0 14px 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+    thead tr { background: #16213e; position: sticky; top: 0; z-index: 1; }
+    th {
+      padding: 7px 8px; text-align: left; font-weight: 600;
+      color: #53d8fb; border-bottom: 2px solid #0f3460; white-space: nowrap;
     }
+    td {
+      padding: 6px 8px; border-bottom: 1px solid #0f3460;
+      font-family: "Courier New", monospace; color: #ccc;
+    }
+    tr:hover td { background: #16213e; }
+    td.num   { color: #e94560; font-weight: bold; font-size: 12px; text-align: center; }
+    td.coord { color: #a5d6a7; }
+    .del-btn {
+      background: none; border: none; color: #444;
+      cursor: pointer; font-size: 13px; padding: 2px 5px;
+      border-radius: 4px; transition: all .15s;
+    }
+    .del-btn:hover { color: #e94560; background: rgba(233,69,96,.1); }
 
-    /* toast */
+    .empty-state { text-align: center; padding: 40px 20px; color: #444; }
+    .empty-state .icon { font-size: 36px; margin-bottom: 10px; }
+    .empty-state p { font-size: 12px; line-height: 1.7; }
+
     .toast {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
+      position: fixed; bottom: 14px; left: 50%;
       transform: translateX(-50%) translateY(60px);
-      background: #222;
-      color: #fff;
-      padding: 10px 20px;
-      border-radius: 8px;
-      font-size: 13px;
-      transition: transform 0.3s;
-      z-index: 100;
-      white-space: nowrap;
-      border-left: 3px solid #4caf50;
+      background: #1e3a2f; color: #a5d6a7; border: 1px solid #388e3c;
+      padding: 8px 16px; border-radius: 8px; font-size: 12px;
+      transition: transform .25s; z-index: 99; white-space: nowrap;
     }
-
-    .toast.show { transform: translateX(-50%) translateY(0); }
-    .toast.error { border-left-color: #e94560; }
+    .toast.show  { transform: translateX(-50%) translateY(0); }
+    .toast.error { background: #3a1e1e; color: #ef9a9a; border-color: #c62828; }
   </style>
 </head>
 <body>
 
-  <header>
-    <div class="logo">P</div>
-    <h1>LV95 Koordinaten-Picker</h1>
-    <div class="badge">LV95 / LN02+</div>
-  </header>
+<header>
+  <div class="logo">P</div>
+  <h1>LV95 Koordinaten-Picker</h1>
+  <div class="badge">LV95 / LN02+</div>
+</header>
 
-  <div class="status-bar">
-    <div class="status-dot" id="statusDot"></div>
-    <span id="statusText">Verbinde mit Trimble Connect…</span>
+<div class="status-bar">
+  <div class="status-dot" id="statusDot"></div>
+  <span id="statusText">Verbinde mit Trimble Connect…</span>
+</div>
+
+<div class="model-bar" id="modelBar">📦 Kein Modell erkannt</div>
+
+<div class="controls">
+  <div class="hint-box" id="hintBox">
+    Klicken Sie <strong>„Punkt aufnehmen"</strong> — der native Trimble
+    Einzelpunkt-Messmodus wird aktiviert. Setzen Sie den Punkt im 3D-Viewer,
+    er erscheint automatisch in der Liste.
   </div>
+  <button class="btn btn-pick" id="btnPick" disabled>
+    <span id="pickIcon">📍</span>
+    <span id="pickLabel">Punkt aufnehmen</span>
+  </button>
+  <div class="btn-row">
+    <button class="btn btn-danger" id="btnClear" disabled>🗑 Alle löschen</button>
+    <button class="btn btn-success" id="btnExport" disabled>⬇ CSV exportieren</button>
+  </div>
+</div>
 
-  <div class="controls">
-    <div class="crs-info">
-      <strong>📐 Koordinatensystem</strong>
-      Schweizer Landeskoordinaten LV95 (EPSG:2056)<br>
-      Höhensystem LN02+ · Einheit: Meter<br>
-      E (X): 2'600'000 m Bereich · N (Y): 1'200'000 m Bereich
+<div class="offset-section">
+  <div class="offset-toggle" id="offsetToggle">
+    ⚙ LV95-Offset manuell setzen <span id="offsetArrow">▶</span>
+  </div>
+  <div class="offset-fields" id="offsetFields">
+    <div class="offset-row">
+      <label>Offset E (X) [m]</label>
+      <input type="number" id="offX" value="0" step="0.001" />
     </div>
-
-    <button class="btn btn-primary" id="btnPick" disabled>
-      <span id="pickIcon">📍</span>
-      <span id="pickLabel">Punkt aufnehmen (Klick im Viewer)</span>
-    </button>
-
-    <div class="btn-row">
-      <button class="btn btn-danger" id="btnClear" disabled>
-        🗑 Alle löschen
-      </button>
-      <button class="btn btn-success" id="btnExport" disabled>
-        ⬇ CSV exportieren
-      </button>
+    <div class="offset-row">
+      <label>Offset N (Y) [m]</label>
+      <input type="number" id="offY" value="0" step="0.001" />
     </div>
-  </div>
-
-  <div class="counter">
-    <span>Messpunkte: <span id="ptCount">0</span></span>
-    <span id="modelInfo" style="color:#555;">Kein Modell geladen</span>
-  </div>
-
-  <div class="table-wrap">
-    <div class="empty-state" id="emptyState">
-      <div class="icon">🏗</div>
-      <p>Klicken Sie auf <strong>„Punkt aufnehmen"</strong><br>
-         und wählen Sie dann einen Punkt<br>
-         im 3D-Viewer aus.</p>
+    <div class="offset-row">
+      <label>Offset H (Z) [m]</label>
+      <input type="number" id="offZ" value="0" step="0.001" />
     </div>
-
-    <table id="ptTable" style="display:none;">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Punktnummer</th>
-          <th>E (X) [m]</th>
-          <th>N (Y) [m]</th>
-          <th>H (Z) [m]</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="ptBody"></tbody>
-    </table>
+    <p class="offset-note">
+      Nur nötig wenn das IFC-Modell nicht georeferenziert ist.<br>
+      Bei korrekt georeferenzierten LV95-Modellen: alle Felder = 0.
+    </p>
   </div>
+</div>
 
-  <div class="toast" id="toast"></div>
+<div class="counter">
+  <span>Messpunkte: <span class="num" id="ptCount">0</span></span>
+  <span style="color:#444; font-size:10px;">Alle Koordinaten in Meter [m]</span>
+</div>
 
-  <script>
-    // ── State ──────────────────────────────────────────────────────────────
-    let API = null;
-    let points = [];          // { id, ptNumber, x, y, z }
-    let ptCounter = 0;
-    let picking = false;
-    let crsOffset = { x: 0, y: 0, z: 0 };   // model origin in LV95
-    let modelName = "";
+<div class="table-wrap">
+  <div class="empty-state" id="emptyState">
+    <div class="icon">📐</div>
+    <p>Noch keine Punkte erfasst.<br>
+       <strong>„Punkt aufnehmen"</strong> klicken,<br>
+       dann im 3D-Viewer einen Punkt anklicken.</p>
+  </div>
+  <table id="ptTable" style="display:none;">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Punktnr.</th>
+        <th>E [m]</th>
+        <th>N [m]</th>
+        <th>H [m]</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="ptBody"></tbody>
+  </table>
+</div>
 
-    // ── DOM refs ───────────────────────────────────────────────────────────
-    const statusDot   = document.getElementById("statusDot");
-    const statusText  = document.getElementById("statusText");
-    const btnPick     = document.getElementById("btnPick");
-    const pickIcon    = document.getElementById("pickIcon");
-    const pickLabel   = document.getElementById("pickLabel");
-    const btnClear    = document.getElementById("btnClear");
-    const btnExport   = document.getElementById("btnExport");
-    const ptCount     = document.getElementById("ptCount");
-    const modelInfo   = document.getElementById("modelInfo");
-    const emptyState  = document.getElementById("emptyState");
-    const ptTable     = document.getElementById("ptTable");
-    const ptBody      = document.getElementById("ptBody");
-    const toastEl     = document.getElementById("toast");
+<div class="toast" id="toast"></div>
 
-    // ── Toast ──────────────────────────────────────────────────────────────
-    function showToast(msg, isError = false) {
-      toastEl.textContent = msg;
-      toastEl.className = "toast" + (isError ? " error" : "") + " show";
-      setTimeout(() => { toastEl.className = "toast" + (isError ? " error" : ""); }, 2800);
+<script>
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+var API            = null;
+var points         = [];
+var ptCounter      = 0;
+var picking        = false;
+var knownMarkupIds = [];
+var pollTimer      = null;
+
+// ═══════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════
+var statusDot  = document.getElementById("statusDot");
+var statusText = document.getElementById("statusText");
+var modelBar   = document.getElementById("modelBar");
+var hintBox    = document.getElementById("hintBox");
+var btnPick    = document.getElementById("btnPick");
+var pickIcon   = document.getElementById("pickIcon");
+var pickLabel  = document.getElementById("pickLabel");
+var btnClear   = document.getElementById("btnClear");
+var btnExport  = document.getElementById("btnExport");
+var ptCount    = document.getElementById("ptCount");
+var emptyState = document.getElementById("emptyState");
+var ptTable    = document.getElementById("ptTable");
+var ptBody     = document.getElementById("ptBody");
+var toastEl    = document.getElementById("toast");
+var offX       = document.getElementById("offX");
+var offY       = document.getElementById("offY");
+var offZ       = document.getElementById("offZ");
+
+// ═══════════════════════════════════════════
+//  OFFSET TOGGLE
+// ═══════════════════════════════════════════
+document.getElementById("offsetToggle").addEventListener("click", function() {
+  var f = document.getElementById("offsetFields");
+  var a = document.getElementById("offsetArrow");
+  if (f.classList.contains("open")) {
+    f.classList.remove("open"); a.textContent = "▶";
+  } else {
+    f.classList.add("open"); a.textContent = "▼";
+  }
+});
+
+// ═══════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════
+function setStatus(state, msg) {
+  statusDot.className = "status-dot " + state;
+  statusText.textContent = msg;
+}
+
+function showToast(msg, isError) {
+  toastEl.textContent = msg;
+  toastEl.className = "toast" + (isError ? " error" : "") + " show";
+  setTimeout(function() {
+    toastEl.className = "toast" + (isError ? " error" : "");
+  }, 3000);
+}
+
+function getOffset() {
+  return {
+    x: parseFloat(offX.value) || 0,
+    y: parseFloat(offY.value) || 0,
+    z: parseFloat(offZ.value) || 0
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  KOORDINATEN-UMRECHNUNG
+//
+//  Die Trimble Workspace API liefert Markup-Koordinaten
+//  in MILLIMETERN (positionX / positionY / positionZ).
+//
+//  Umrechnung: mm ÷ 1000 = Meter
+//  Danach: LV95-Offset addieren (Standard = 0 bei georef. Modellen)
+//
+//  Ergebnis: E / N / H in METER [m] — LV95 / LN02+
+// ─────────────────────────────────────────────────────────────
+function mmToLV95(posXmm, posYmm, posZmm) {
+  var off = getOffset();
+  return {
+    E: (posXmm / 1000) + off.x,
+    N: (posYmm / 1000) + off.y,
+    H: (posZmm / 1000) + off.z
+  };
+}
+
+function fmt(v) {
+  return v.toFixed(3);  // 3 Nachkommastellen = mm-Genauigkeit
+}
+
+// ═══════════════════════════════════════════
+//  VERBINDUNG
+// ═══════════════════════════════════════════
+function waitForAPI(ms) {
+  return new Promise(function(resolve, reject) {
+    var t0 = Date.now();
+    (function check() {
+      if (typeof TrimbleConnectWorkspace !== "undefined") { resolve(); }
+      else if (Date.now() - t0 > ms) { reject(new Error("API timeout")); }
+      else { setTimeout(check, 100); }
+    })();
+  });
+}
+
+async function init() {
+  if (window.self === window.top) {
+    throw new Error("Nicht innerhalb von Trimble Connect");
+  }
+  setStatus("waiting", "Verbinde…");
+  API = await TrimbleConnectWorkspace.connect(window.parent, onEvent, 15000);
+  setStatus("connected", "Verbunden");
+  btnPick.disabled = false;
+  await refreshModel();
+}
+
+// ═══════════════════════════════════════════
+//  MODELL AUTOMATISCH ERKENNEN
+// ═══════════════════════════════════════════
+async function refreshModel() {
+  if (!API) return;
+  try {
+    var models = await API.viewer.getModels();
+    models = models || [];
+    var loaded = models.filter(function(m) {
+      return m.status === "loaded" || m.loaded === true || m.visible === true;
+    });
+    if (!loaded.length) loaded = models;
+
+    if (loaded.length > 0) {
+      var names = loaded.map(function(m) { return m.name || m.id || "?"; }).join(", ");
+      modelBar.textContent = "📦 " + names;
+      setStatus("connected", "Verbunden · " + loaded.length + " Modell(e) geladen");
+    } else {
+      modelBar.textContent = "📦 Kein Modell geladen";
+      setStatus("connected", "Verbunden · kein Modell");
     }
+  } catch(e) {
+    console.warn("refreshModel:", e);
+  }
+}
 
-    // ── Status ─────────────────────────────────────────────────────────────
-    function setStatus(state, msg) {
-      statusDot.className = "status-dot " + state;
-      statusText.textContent = msg;
-    }
+// ═══════════════════════════════════════════
+//  EVENTS
+// ═══════════════════════════════════════════
+function onEvent(event, data) {
+  console.log("[TC]", event, data);
+  switch(event) {
+    case "markup.changed":
+    case "markup.added":
+    case "markups.changed":
+      if (picking) setTimeout(checkForNewMarkup, 400);
+      break;
+    case "viewer.model.loaded":
+    case "viewer.models.loaded":
+    case "viewer.model.added":
+    case "model.loaded":
+      refreshModel();
+      break;
+  }
+}
 
-    // ── Connect to Trimble API ─────────────────────────────────────────────
-    async function init() {
-      // Pruefen ob die Seite wirklich in einem iframe laeuft
-      if (window.self === window.top) {
-        throw new Error("Seite laeuft nicht in einem Trimble Connect iframe");
-      }
+// ═══════════════════════════════════════════
+//  NEUEN MARKUP LESEN UND VERARBEITEN
+// ═══════════════════════════════════════════
+async function checkForNewMarkup() {
+  if (!API || !picking) return;
+  try {
+    var markups = await API.markup.getSinglePointMarkups();
+    if (!markups || !markups.length) return;
 
-      try {
-        setStatus("waiting", "Verbinde mit Trimble Connect…");
+    for (var i = markups.length - 1; i >= 0; i--) {
+      var m   = markups[i];
+      var mid = (m.id !== undefined) ? m.id : ("idx_" + i);
 
-        API = await TrimbleConnectWorkspace.connect(
-          window.parent,
-          handleEvent,
-          15000   // 15s Timeout
-        );
+      if (knownMarkupIds.indexOf(mid) !== -1) continue;
 
-        setStatus("connected", "Verbunden · Modell laden und Punkte aufnehmen");
-        btnPick.disabled = false;
+      // ── Neuer Punkt gefunden ──
+      knownMarkupIds.push(mid);
+      var pick = m.start;
+      if (!pick || pick.positionX === undefined) continue;
 
-        // Try to read model CRS / placement for LV95 offset
-        await detectCRS();
-
-      } catch (err) {
-        setStatus("error", "Verbindungsfehler: " + err.message);
-        console.error("TC API connect error:", err);
-      }
-    }
-
-    // ── Event handler ──────────────────────────────────────────────────────
-    function handleEvent(event, data) {
-      console.log("[TC Event]", event, data);
-
-      switch (event) {
-        // A point was picked in the viewer (3D pick tool)
-        case "viewer.pick":
-        case "viewer.object.pick":
-          if (picking && data) {
-            const pos = data.position || data.point || data;
-            if (pos && pos.x !== undefined) {
-              capturePoint(pos.x, pos.y, pos.z);
-            }
-          }
-          break;
-
-        // Mouse click with coordinates (some TC versions fire this)
-        case "viewer.click":
-          if (picking && data && data.worldPosition) {
-            capturePoint(
-              data.worldPosition.x,
-              data.worldPosition.y,
-              data.worldPosition.z
-            );
-          }
-          break;
-
-        // Object selected – use its bounding box centre as the point
-        case "viewer.object.selected":
-        case "viewer.selection.changed":
-          if (picking) {
-            handleSelectionPick(data);
-          }
-          break;
-
-        // Model loaded – try to grab CRS info
-        case "viewer.model.loaded":
-        case "viewer.models.loaded":
-          detectCRS();
-          break;
-      }
-    }
-
-    // ── Detect CRS / model placement ───────────────────────────────────────
-    async function detectCRS() {
-      if (!API) return;
-      try {
-        const models = await API.viewer.getModels();
-        if (models && models.length > 0) {
-          modelName = models[0].name || models[0].id || "Modell";
-          modelInfo.textContent = "📦 " + modelName;
-
-          // Try to get placement / CRS for the first loaded model
-          // Trimble Connect stores IFC geolocation as model placement
-          // The viewer.getSettings() may return the viewer coordinate reference
-          const settings = await API.viewer.getSettings().catch(() => null);
-          if (settings && settings.crs) {
-            const c = settings.crs;
-            crsOffset.x = c.easting  || c.x || 0;
-            crsOffset.y = c.northing || c.y || 0;
-            crsOffset.z = c.elevation|| c.z || 0;
-            console.log("CRS offset from settings:", crsOffset);
-          }
-        }
-      } catch (e) {
-        console.warn("CRS detection skipped:", e);
-      }
-    }
-
-    // ── Handle selection-based picking (fallback) ──────────────────────────
-    async function handleSelectionPick(data) {
-      if (!API) return;
-      try {
-        // Extract selected objects
-        const selection = await API.viewer.getSelection();
-        if (!selection || !selection.length) return;
-
-        const sel = selection[0];
-        const bboxes = await API.viewer.getObjectBoundingBoxes(
-          sel.modelId,
-          [sel.objectRuntimeId]
-        );
-
-        if (bboxes && bboxes.length > 0) {
-          const bb = bboxes[0];
-          // Centre of bounding box
-          const cx = (bb.min.x + bb.max.x) / 2;
-          const cy = (bb.min.y + bb.max.y) / 2;
-          const cz = (bb.min.z + bb.max.z) / 2;
-          capturePoint(cx, cy, cz);
-        }
-      } catch (e) {
-        console.warn("Selection pick error:", e);
-      }
-    }
-
-    // ── Capture a point and convert to LV95 ───────────────────────────────
-    function capturePoint(rawX, rawY, rawZ) {
-      // Apply model offset to get LV95 coordinates
-      // In IFC-geo models the viewer world origin is typically at
-      // the IFC site reference point which maps to LV95 coordinates
-      const lv95E = rawX + crsOffset.x;   // Easting  (E) ≈ 2'600'000
-      const lv95N = rawY + crsOffset.y;   // Northing (N) ≈ 1'200'000
-      const lv95H = rawZ + crsOffset.z;   // Height (LN02+)
+      // Trimble API: Koordinaten in Millimetern → umrechnen in Meter
+      var lv95 = mmToLV95(pick.positionX, pick.positionY, pick.positionZ);
 
       ptCounter++;
-      const pt = {
-        id: Date.now(),
+      points.push({
+        id:       Date.now() + i,
         ptNumber: ptCounter,
-        x: lv95E,
-        y: lv95N,
-        z: lv95H,
-        rawX, rawY, rawZ
-      };
-      points.push(pt);
+        x:        lv95.E,
+        y:        lv95.N,
+        z:        lv95.H
+      });
 
       stopPicking();
       renderTable();
-      showToast(`✓ Punkt ${ptCounter} aufgenommen`);
+      showToast("✓ Punkt " + ptCounter + " — E: " + fmt(lv95.E) +
+        " / N: " + fmt(lv95.N) + " / H: " + fmt(lv95.H) + " m");
+      return;
     }
+  } catch(e) {
+    console.warn("checkForNewMarkup:", e);
+  }
+}
 
-    // ── Picking mode ───────────────────────────────────────────────────────
-    function startPicking() {
-      picking = true;
-      btnPick.classList.add("active");
-      pickIcon.textContent = "🔴";
-      pickLabel.textContent = "Aktiv – Klicken Sie einen Punkt im Viewer an";
-      setStatus("waiting", "Warten auf Punktauswahl im 3D-Viewer…");
+// ═══════════════════════════════════════════
+//  POLLING FALLBACK (falls Event nicht kommt)
+// ═══════════════════════════════════════════
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(function() {
+    if (picking) checkForNewMarkup();
+    else stopPolling();
+  }, 600);
+}
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
 
-      // Activate the pick/measure tool in the viewer
-      if (API && API.viewer && API.viewer.activateTool) {
-        API.viewer.activateTool("pick").catch(() => {
-          // Some TC versions use "select" as tool name
-          API.viewer.activateTool("select").catch(console.warn);
-        });
-      }
-    }
+// ═══════════════════════════════════════════
+//  PICKING EIN / AUS
+// ═══════════════════════════════════════════
+async function startPicking() {
+  if (!API) return;
+  picking = true;
 
-    function stopPicking() {
-      picking = false;
-      btnPick.classList.remove("active");
-      pickIcon.textContent = "📍";
-      pickLabel.textContent = "Punkt aufnehmen (Klick im Viewer)";
-      setStatus("connected", "Verbunden · Weiteren Punkt aufnehmen oder CSV exportieren");
-
-      // Reset viewer tool
-      if (API && API.viewer && API.viewer.activateTool) {
-        API.viewer.activateTool("reset").catch(console.warn);
-      }
-    }
-
-    btnPick.addEventListener("click", () => {
-      if (picking) {
-        stopPicking();
-      } else {
-        startPicking();
-      }
+  // Snapshot bestehender Markups
+  try {
+    var existing = await API.markup.getSinglePointMarkups();
+    knownMarkupIds = (existing || []).map(function(m, i) {
+      return (m.id !== undefined) ? m.id : ("idx_" + i);
     });
+  } catch(e) { knownMarkupIds = []; }
 
-    // ── Clear all ──────────────────────────────────────────────────────────
-    btnClear.addEventListener("click", () => {
-      if (!points.length) return;
-      if (!confirm("Alle " + points.length + " Punkte löschen?")) return;
-      points = [];
-      ptCounter = 0;
-      renderTable();
-      showToast("Alle Punkte gelöscht", true);
-    });
+  // UI
+  btnPick.classList.add("active");
+  pickIcon.textContent  = "🔴";
+  pickLabel.textContent = "Picker aktiv – Abbrechen";
+  hintBox.className     = "hint-box picking";
+  hintBox.innerHTML     = "🟠 <strong>Picker aktiv</strong> — Klicken Sie einen " +
+    "Punkt im 3D-Viewer an (nativer Einzelpunkt-Messmodus).";
+  setStatus("waiting", "Warten auf Punktauswahl im Viewer…");
 
-    // ── Delete single point ────────────────────────────────────────────────
-    function deletePoint(id) {
-      points = points.filter(p => p.id !== id);
-      // Re-number sequentially
-      points.forEach((p, i) => { p.ptNumber = i + 1; });
-      ptCounter = points.length;
-      renderTable();
+  // Nativen Einzelpunkt-Messmodus aktivieren
+  try {
+    await API.viewer.activateTool("singlepoint");
+  } catch(e) {
+    try { await API.viewer.activateTool("measure"); } catch(e2) {
+      console.warn("Tool-Aktivierung nicht möglich – bitte manuell Einzelpunkt wählen");
     }
+  }
 
-    // ── Render table ───────────────────────────────────────────────────────
-    function renderTable() {
-      ptCount.textContent = points.length;
-      btnClear.disabled  = points.length === 0;
-      btnExport.disabled = points.length === 0;
+  startPolling();
+}
 
-      if (points.length === 0) {
-        emptyState.style.display = "";
-        ptTable.style.display = "none";
-        return;
-      }
+function stopPicking() {
+  picking = false;
+  stopPolling();
+  btnPick.classList.remove("active");
+  pickIcon.textContent  = "📍";
+  pickLabel.textContent = "Punkt aufnehmen";
+  hintBox.className     = "hint-box";
+  hintBox.innerHTML     = "Klicken Sie <strong>„Punkt aufnehmen"</strong> — der native Trimble " +
+    "Einzelpunkt-Messmodus wird aktiviert. Setzen Sie den Punkt im 3D-Viewer, " +
+    "er erscheint automatisch in der Liste.";
+  setStatus("connected", "Verbunden");
+  try { API.viewer.activateTool("reset"); } catch(e) {}
+}
 
-      emptyState.style.display = "none";
-      ptTable.style.display = "";
+btnPick.addEventListener("click", function() {
+  if (picking) stopPicking();
+  else startPicking();
+});
 
-      ptBody.innerHTML = points.map(p => `
-        <tr>
-          <td class="pt-num">${p.ptNumber}</td>
-          <td style="color:#e0e0e0;">P${String(p.ptNumber).padStart(3,"0")}</td>
-          <td class="coord">${fmtCoord(p.x)}</td>
-          <td class="coord">${fmtCoord(p.y)}</td>
-          <td class="coord">${fmtCoord(p.z, 3)}</td>
-          <td><button class="del-btn" onclick="deletePoint(${p.id})" title="Löschen">✕</button></td>
-        </tr>
-      `).join("");
-    }
+// ═══════════════════════════════════════════
+//  LÖSCHEN
+// ═══════════════════════════════════════════
+btnClear.addEventListener("click", function() {
+  if (!points.length) return;
+  if (!confirm("Alle " + points.length + " Punkte löschen?")) return;
+  points = []; ptCounter = 0; knownMarkupIds = [];
+  renderTable();
+  showToast("Alle Punkte gelöscht", true);
+});
 
-    function fmtCoord(v, dec = 3) {
-      return v.toFixed(dec);
-    }
+window.deletePoint = function(id) {
+  points = points.filter(function(p) { return p.id !== id; });
+  points.forEach(function(p, i) { p.ptNumber = i + 1; });
+  ptCounter = points.length;
+  renderTable();
+};
 
-    // ── CSV Export ─────────────────────────────────────────────────────────
-    btnExport.addEventListener("click", exportCSV);
+// ═══════════════════════════════════════════
+//  TABELLE
+// ═══════════════════════════════════════════
+function renderTable() {
+  ptCount.textContent      = points.length;
+  btnClear.disabled        = points.length === 0;
+  btnExport.disabled       = points.length === 0;
+  emptyState.style.display = points.length ? "none" : "";
+  ptTable.style.display    = points.length ? ""     : "none";
 
-    function exportCSV() {
-      if (!points.length) return;
+  ptBody.innerHTML = points.map(function(p) {
+    var nr = String(p.ptNumber).padStart(3, "0");
+    return "<tr>" +
+      "<td class='num'>" + p.ptNumber + "</td>" +
+      "<td style='color:#e0e0e0'>P" + nr + "</td>" +
+      "<td class='coord'>" + fmt(p.x) + "</td>" +
+      "<td class='coord'>" + fmt(p.y) + "</td>" +
+      "<td class='coord'>" + fmt(p.z) + "</td>" +
+      "<td><button class='del-btn' onclick='deletePoint(" + p.id + ")' title='Löschen'>✕</button></td>" +
+      "</tr>";
+  }).join("");
+}
 
-      const BOM = "\uFEFF"; // UTF-8 BOM for Excel compatibility
-      const header = "Punktnummer;E_LV95_m;N_LV95_m;H_LN02_m\r\n";
-      const rows = points.map(p =>
-        `P${String(p.ptNumber).padStart(3,"0")};${p.x.toFixed(3)};${p.y.toFixed(3)};${p.z.toFixed(3)}`
-      ).join("\r\n");
+// ═══════════════════════════════════════════
+//  CSV EXPORT — Werte in METER [m]
+// ═══════════════════════════════════════════
+btnExport.addEventListener("click", function() {
+  if (!points.length) return;
 
-      const csv = BOM + header + rows;
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url  = URL.createObjectURL(blob);
+  // UTF-8 BOM für direkte Excel-Kompatibilität (Schweiz: Semikolon-Trenner)
+  var BOM    = "\uFEFF";
+  var header = "Punktnummer;E_LV95_m;N_LV95_m;H_LN02_m\r\n";
+  var rows   = points.map(function(p) {
+    return "P" + String(p.ptNumber).padStart(3,"0") + ";" +
+      fmt(p.x) + ";" + fmt(p.y) + ";" + fmt(p.z);
+  }).join("\r\n");
 
-      const ts = new Date().toISOString().slice(0,19).replace(/[T:]/g, "-");
-      const filename = `LV95_Koordinaten_${ts}.csv`;
+  var blob = new Blob([BOM + header + rows], { type: "text/csv;charset=utf-8;" });
+  var url  = URL.createObjectURL(blob);
+  var ts   = new Date().toISOString().slice(0,19).split("T").join("_").split(":").join("-");
+  var fn   = "LV95_" + ts + ".csv";
 
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+  var a = document.createElement("a");
+  a.href = url; a.download = fn;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 
-      showToast(`✓ ${filename} exportiert (${points.length} Punkte)`);
-    }
+  showToast("✓ " + fn + " exportiert — " + points.length + " Punkte in Meter [m]");
+});
 
-    // ── Manual coordinate input fallback ──────────────────────────────────
-    // Expose a global so the debug panel (below) can call it
-    window.addManualPoint = function(x, y, z) {
-      capturePoint(parseFloat(x), parseFloat(y), parseFloat(z));
-    };
+// ═══════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════
+async function safeInit() {
+  try {
+    await waitForAPI(10000);
+    await init();
+  } catch(err) {
+    setStatus("error", "Kein Trimble Connect erkannt");
+    btnPick.disabled = false;
+    console.warn(err.message);
+  }
+}
 
-    // ── Start: sicher warten bis TrimbleConnectWorkspace geladen ist ─────
-    function waitForAPI(timeout) {
-      timeout = timeout || 10000;
-      return new Promise(function(resolve, reject) {
-        var start = Date.now();
-        (function check() {
-          if (typeof TrimbleConnectWorkspace !== "undefined") {
-            resolve();
-          } else if (Date.now() - start > timeout) {
-            reject(new Error("TrimbleConnectWorkspace nicht geladen (Timeout)"));
-          } else {
-            setTimeout(check, 100);
-          }
-        })();
-      });
-    }
-
-    async function safeInit() {
-      try {
-        await waitForAPI(10000);
-        await init();
-      } catch (err) {
-        // Standalone-Modus: Seite laeuft nicht innerhalb von Trimble Connect
-        setStatus("error",
-          "Kein Trimble Connect gefunden – Standalone-Modus (nur manuelle Eingabe aktiv)");
-        console.warn("Standalone-Modus:", err.message);
-        // Buttons fuer manuellen Betrieb freischalten
-        btnPick.disabled = false;
-        // Debug-Panel automatisch oeffnen
-        var details = document.querySelector("details");
-        if (details) details.open = true;
-      }
-    }
-
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", safeInit);
-    } else {
-      safeInit();
-    }
-  </script>
-
-  <!-- ── Debug / Manual input panel (collapsible) ──────────────────────── -->
-  <details style="
-    position:fixed; bottom:0; left:0; right:0;
-    background:#111; border-top:1px solid #0f3460;
-    font-size:11px; color:#555; padding:4px 16px 6px;">
-    <summary style="cursor:pointer; color:#444; user-select:none;">
-      🔧 Manuelle Eingabe / Debug
-    </summary>
-    <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
-      <input id="mX" placeholder="E (X)" style="
-        flex:1; min-width:80px; background:#1a1a2e; border:1px solid #333;
-        color:#aaa; padding:5px 8px; border-radius:4px; font-size:11px;" />
-      <input id="mY" placeholder="N (Y)" style="
-        flex:1; min-width:80px; background:#1a1a2e; border:1px solid #333;
-        color:#aaa; padding:5px 8px; border-radius:4px; font-size:11px;" />
-      <input id="mZ" placeholder="H (Z)" style="
-        flex:1; min-width:80px; background:#1a1a2e; border:1px solid #333;
-        color:#aaa; padding:5px 8px; border-radius:4px; font-size:11px;" />
-      <button onclick="
-        addManualPoint(
-          document.getElementById('mX').value,
-          document.getElementById('mY').value,
-          document.getElementById('mZ').value
-        );
-        document.getElementById('mX').value='';
-        document.getElementById('mY').value='';
-        document.getElementById('mZ').value='';
-      " style="
-        background:#0f3460; color:#53d8fb; border:none;
-        padding:5px 12px; border-radius:4px; cursor:pointer; font-size:11px;">
-        + Hinzufügen
-      </button>
-    </div>
-    <p style="margin-top:4px; color:#333; font-size:10px;">
-      Koordinaten direkt eingeben (z.B. E: 2683000, N: 1248000, H: 450)
-    </p>
-  </details>
-
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", safeInit);
+} else {
+  safeInit();
+}
+</script>
 </body>
 </html>
+
