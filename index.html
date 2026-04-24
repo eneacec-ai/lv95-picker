@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LV95 Koordinaten-Picker</title>
-  <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js" defer></script>
+  <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -163,9 +163,9 @@
 
 <div class="controls">
   <div class="hint-box" id="hintBox">
-    Klicken Sie <strong>„Punkt aufnehmen"</strong> — der native Trimble
-    Einzelpunkt-Messmodus wird aktiviert. Setzen Sie den Punkt im 3D-Viewer,
-    er erscheint automatisch in der Liste.
+    Klicken Sie <strong>„Punkt aufnehmen"</strong> — dann klicken Sie
+    direkt einen Punkt im 3D-Viewer an. Die Koordinaten erscheinen
+    automatisch in der Liste.
   </div>
   <button class="btn btn-pick" id="btnPick" disabled>
     <span id="pickIcon">📍</span>
@@ -238,6 +238,7 @@ var API            = null;
 var points         = [];
 var ptCounter      = 0;
 var picking        = false;
+// Snapshot of known single-point markup IDs before picking starts
 var knownMarkupIds = [];
 var pollTimer      = null;
 
@@ -299,16 +300,18 @@ function getOffset() {
   };
 }
 
+function fmt(v) {
+  return v.toFixed(3);
+}
+
 // ─────────────────────────────────────────────────────────────
 //  KOORDINATEN-UMRECHNUNG
 //
-//  Die Trimble Workspace API liefert Markup-Koordinaten
-//  in MILLIMETERN (positionX / positionY / positionZ).
+//  MarkupPick.positionX/Y/Z → in MILLIMETERN (laut API-Doku)
+//  Vector3 aus viewer.point.picked → in METERN
 //
-//  Umrechnung: mm ÷ 1000 = Meter
-//  Danach: LV95-Offset addieren (Standard = 0 bei georef. Modellen)
-//
-//  Ergebnis: E / N / H in METER [m] — LV95 / LN02+
+//  Für Markups: mm ÷ 1000 + Offset = Meter
+//  Für viewer.point.picked: direkt + Offset = Meter
 // ─────────────────────────────────────────────────────────────
 function mmToLV95(posXmm, posYmm, posZmm) {
   var off = getOffset();
@@ -319,8 +322,29 @@ function mmToLV95(posXmm, posYmm, posZmm) {
   };
 }
 
-function fmt(v) {
-  return v.toFixed(3);  // 3 Nachkommastellen = mm-Genauigkeit
+function vec3ToLV95(x, y, z) {
+  // viewer.point.picked position is in meters
+  var off = getOffset();
+  return {
+    E: x + off.x,
+    N: y + off.y,
+    H: z + off.z
+  };
+}
+
+function addPoint(E, N, H) {
+  if (!picking) return;
+  ptCounter++;
+  points.push({
+    id:       Date.now(),
+    ptNumber: ptCounter,
+    x:        E,
+    y:        N,
+    z:        H
+  });
+  stopPicking();
+  renderTable();
+  showToast("✓ Punkt " + ptCounter + " — E: " + fmt(E) + " / N: " + fmt(N) + " / H: " + fmt(H) + " m");
 }
 
 // ═══════════════════════════════════════════
@@ -338,20 +362,26 @@ function waitForAPI(ms) {
 }
 
 async function init() {
+  // Allow running outside Trimble (dev mode) for layout testing
+  if (window.self === window.top) {
+    setStatus("error", "Bitte innerhalb von Trimble Connect öffnen");
+    btnPick.disabled = false;
+    return;
+  }
   setStatus("waiting", "Verbinde…");
   try {
     API = await TrimbleConnectWorkspace.connect(window.parent, onEvent, 15000);
+    setStatus("connected", "Verbunden");
+    btnPick.disabled = false;
+    await refreshModel();
   } catch(e) {
-    // Fallback: direkt window versuchen
-    API = await TrimbleConnectWorkspace.connect(window, onEvent, 15000);
+    setStatus("error", "Verbindung fehlgeschlagen: " + e.message);
+    console.error("connect error:", e);
   }
-  setStatus("connected", "Verbunden");
-  btnPick.disabled = false;
-  await refreshModel();
 }
 
 // ═══════════════════════════════════════════
-//  MODELL AUTOMATISCH ERKENNEN
+//  MODELL ERKENNEN
 // ═══════════════════════════════════════════
 async function refreshModel() {
   if (!API) return;
@@ -362,7 +392,6 @@ async function refreshModel() {
       return m.status === "loaded" || m.loaded === true || m.visible === true;
     });
     if (!loaded.length) loaded = models;
-
     if (loaded.length > 0) {
       var names = loaded.map(function(m) { return m.name || m.id || "?"; }).join(", ");
       modelBar.textContent = "📦 " + names;
@@ -378,15 +407,35 @@ async function refreshModel() {
 
 // ═══════════════════════════════════════════
 //  EVENTS
+//  viewer.point.picked → direkte Koordinaten (in Metern, Vector3)
+//  markup.changed → Fallback via getSinglePointMarkups()
 // ═══════════════════════════════════════════
-function onEvent(event, data) {
-  console.log("[TC]", event, data);
+function onEvent(event, args) {
+  console.log("[TC Event]", event, args);
+
   switch(event) {
+
+    // ── Primär: viewer.point.picked (direkte Klick-Koordinaten) ──
+    case "viewer.point.picked":
+      if (picking && args && args.data && args.data.position) {
+        var pos = args.data.position;
+        // position is a Vector3 in meters
+        var lv95 = vec3ToLV95(pos.x, pos.y, pos.z);
+        addPoint(lv95.E, lv95.N, lv95.H);
+      }
+      break;
+
+    // ── Fallback: Markup-Events → poll getSinglePointMarkups ──
     case "markup.changed":
     case "markup.added":
     case "markups.changed":
-      if (picking) setTimeout(checkForNewMarkup, 400);
+    case "viewer.markups.changed":
+      if (picking) {
+        setTimeout(checkForNewMarkup, 400);
+      }
       break;
+
+    // ── Modell-Events ──
     case "viewer.model.loaded":
     case "viewer.models.loaded":
     case "viewer.model.added":
@@ -397,7 +446,7 @@ function onEvent(event, data) {
 }
 
 // ═══════════════════════════════════════════
-//  NEUEN MARKUP LESEN UND VERARBEITEN
+//  FALLBACK: MARKUP POLLING
 // ═══════════════════════════════════════════
 async function checkForNewMarkup() {
   if (!API || !picking) return;
@@ -407,31 +456,18 @@ async function checkForNewMarkup() {
 
     for (var i = markups.length - 1; i >= 0; i--) {
       var m   = markups[i];
-      var mid = (m.id !== undefined) ? m.id : ("idx_" + i);
+      var mid = (m.id !== undefined) ? String(m.id) : ("idx_" + i);
 
       if (knownMarkupIds.indexOf(mid) !== -1) continue;
 
-      // ── Neuer Punkt gefunden ──
+      // New markup found
       knownMarkupIds.push(mid);
       var pick = m.start;
       if (!pick || pick.positionX === undefined) continue;
 
-      // Trimble API: Koordinaten in Millimetern → umrechnen in Meter
+      // positionX/Y/Z are in millimeters per API docs
       var lv95 = mmToLV95(pick.positionX, pick.positionY, pick.positionZ);
-
-      ptCounter++;
-      points.push({
-        id:       Date.now() + i,
-        ptNumber: ptCounter,
-        x:        lv95.E,
-        y:        lv95.N,
-        z:        lv95.H
-      });
-
-      stopPicking();
-      renderTable();
-      showToast("✓ Punkt " + ptCounter + " — E: " + fmt(lv95.E) +
-        " / N: " + fmt(lv95.N) + " / H: " + fmt(lv95.H) + " m");
+      addPoint(lv95.E, lv95.N, lv95.H);
       return;
     }
   } catch(e) {
@@ -440,14 +476,14 @@ async function checkForNewMarkup() {
 }
 
 // ═══════════════════════════════════════════
-//  POLLING FALLBACK (falls Event nicht kommt)
+//  POLLING FALLBACK TIMER
 // ═══════════════════════════════════════════
 function startPolling() {
   stopPolling();
   pollTimer = setInterval(function() {
     if (picking) checkForNewMarkup();
     else stopPolling();
-  }, 600);
+  }, 800);
 }
 function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
@@ -457,14 +493,14 @@ function stopPolling() {
 //  PICKING EIN / AUS
 // ═══════════════════════════════════════════
 async function startPicking() {
-  if (!API) return;
+  if (!API) { showToast("Nicht verbunden", true); return; }
   picking = true;
 
-  // Snapshot bestehender Markups
+  // Snapshot bestehender Markups für Fallback-Erkennung
   try {
     var existing = await API.markup.getSinglePointMarkups();
     knownMarkupIds = (existing || []).map(function(m, i) {
-      return (m.id !== undefined) ? m.id : ("idx_" + i);
+      return (m.id !== undefined) ? String(m.id) : ("idx_" + i);
     });
   } catch(e) { knownMarkupIds = []; }
 
@@ -473,18 +509,9 @@ async function startPicking() {
   pickIcon.textContent  = "🔴";
   pickLabel.textContent = "Picker aktiv – Abbrechen";
   hintBox.className     = "hint-box picking";
-  hintBox.innerHTML     = "🟠 <strong>Picker aktiv</strong> — Klicken Sie einen " +
-    "Punkt im 3D-Viewer an (nativer Einzelpunkt-Messmodus).";
+  hintBox.innerHTML     = "🟠 <strong>Picker aktiv</strong> — Klicken Sie jetzt " +
+    "direkt einen Punkt im 3D-Viewer an.";
   setStatus("waiting", "Warten auf Punktauswahl im Viewer…");
-
-  // Nativen Einzelpunkt-Messmodus aktivieren
-  try {
-    await API.viewer.activateTool("singlepoint");
-  } catch(e) {
-    try { await API.viewer.activateTool("measure"); } catch(e2) {
-      console.warn("Tool-Aktivierung nicht möglich – bitte manuell Einzelpunkt wählen");
-    }
-  }
 
   startPolling();
 }
@@ -496,11 +523,9 @@ function stopPicking() {
   pickIcon.textContent  = "📍";
   pickLabel.textContent = "Punkt aufnehmen";
   hintBox.className     = "hint-box";
-  hintBox.innerHTML     = "Klicken Sie <strong>„Punkt aufnehmen"</strong> — der native Trimble " +
-    "Einzelpunkt-Messmodus wird aktiviert. Setzen Sie den Punkt im 3D-Viewer, " +
-    "er erscheint automatisch in der Liste.";
-  setStatus("connected", "Verbunden");
-  try { API.viewer.activateTool("reset"); } catch(e) {}
+  hintBox.innerHTML     = "Klicken Sie <strong>„Punkt aufnehmen"</strong> — dann klicken " +
+    "Sie direkt einen Punkt im 3D-Viewer an.";
+  if (API) setStatus("connected", "Verbunden");
 }
 
 btnPick.addEventListener("click", function() {
@@ -550,12 +575,11 @@ function renderTable() {
 }
 
 // ═══════════════════════════════════════════
-//  CSV EXPORT — Werte in METER [m]
+//  CSV EXPORT — Semikolon, UTF-8 BOM (Excel CH)
 // ═══════════════════════════════════════════
 btnExport.addEventListener("click", function() {
   if (!points.length) return;
 
-  // UTF-8 BOM für direkte Excel-Kompatibilität (Schweiz: Semikolon-Trenner)
   var BOM    = "\uFEFF";
   var header = "Punktnummer;E_LV95_m;N_LV95_m;H_LN02_m\r\n";
   var rows   = points.map(function(p) {
@@ -565,7 +589,7 @@ btnExport.addEventListener("click", function() {
 
   var blob = new Blob([BOM + header + rows], { type: "text/csv;charset=utf-8;" });
   var url  = URL.createObjectURL(blob);
-  var ts   = new Date().toISOString().slice(0,19).split("T").join("_").split(":").join("-");
+  var ts   = new Date().toISOString().slice(0,19).replace("T","_").replace(/:/g,"-");
   var fn   = "LV95_" + ts + ".csv";
 
   var a = document.createElement("a");
@@ -575,7 +599,7 @@ btnExport.addEventListener("click", function() {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 
-  showToast("✓ " + fn + " exportiert — " + points.length + " Punkte in Meter [m]");
+  showToast("✓ " + fn + " — " + points.length + " Punkte exportiert");
 });
 
 // ═══════════════════════════════════════════
@@ -586,10 +610,8 @@ async function safeInit() {
     await waitForAPI(10000);
     await init();
   } catch(err) {
-    console.warn("Verbindungsfehler:", err.message);
-    setStatus("error", "Verbindung fehlgeschlagen – bitte Seite neu laden");
-    // Button trotzdem freischalten damit manuelle Eingabe möglich bleibt
-    btnPick.disabled = false;
+    setStatus("error", "API nicht gefunden: " + err.message);
+    console.warn(err);
   }
 }
 
@@ -601,3 +623,4 @@ if (document.readyState === "loading") {
 </script>
 </body>
 </html>
+
