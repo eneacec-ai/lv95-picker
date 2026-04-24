@@ -338,11 +338,13 @@ function waitForAPI(ms) {
 }
 
 async function init() {
-  if (window.self === window.top) {
-    throw new Error("Nicht innerhalb von Trimble Connect");
-  }
   setStatus("waiting", "Verbinde…");
-  API = await TrimbleConnectWorkspace.connect(window.parent, onEvent, 15000);
+  try {
+    API = await TrimbleConnectWorkspace.connect(window.parent, onEvent, 15000);
+  } catch(e) {
+    // Fallback: direkt window versuchen
+    API = await TrimbleConnectWorkspace.connect(window, onEvent, 15000);
+  }
   setStatus("connected", "Verbunden");
   btnPick.disabled = false;
   await refreshModel();
@@ -584,9 +586,10 @@ async function safeInit() {
     await waitForAPI(10000);
     await init();
   } catch(err) {
-    setStatus("error", "Kein Trimble Connect erkannt");
+    console.warn("Verbindungsfehler:", err.message);
+    setStatus("error", "Verbindung fehlgeschlagen – bitte Seite neu laden");
+    // Button trotzdem freischalten damit manuelle Eingabe möglich bleibt
     btnPick.disabled = false;
-    console.warn(err.message);
   }
 }
 
@@ -598,4 +601,3 @@ if (document.readyState === "loading") {
 </script>
 </body>
 </html>
-
