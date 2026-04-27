@@ -45,7 +45,7 @@ GitHub Pages updates within ~1 minute. The extension in TC automatically loads t
 
 1. Open your TC project
 2. Go to **Settings → Extensions → Custom Extensions**
-3. Paste the manifest URL: `https://eneacec-ai.github.io/lv95-picker/manifest%20(1).json`
+3. Paste the manifest URL: `https://eneacec-ai.github.io/lv95-picker/manifest.json`
 4. Click **Add**
 
 ---
