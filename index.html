@@ -361,6 +361,25 @@ function waitForAPI(ms) {
   });
 }
 
+async function connectWithRetry(maxAttempts, delayMs) {
+  for (var i = 0; i < maxAttempts; i++) {
+    try {
+      return await Promise.race([
+        TrimbleConnectWorkspace.connect(window.parent, onEvent),
+        new Promise(function(_, reject) {
+          setTimeout(function() { reject(new Error("timeout")); }, delayMs);
+        })
+      ]);
+    } catch(e) {
+      if (i < maxAttempts - 1) {
+        await new Promise(function(resolve) { setTimeout(resolve, 500); });
+      } else {
+        throw e;
+      }
+    }
+  }
+}
+
 async function init() {
   // Allow running outside Trimble (dev mode) for layout testing
   var inIframe = window.self !== window.top;
@@ -370,9 +389,9 @@ async function init() {
     btnPick.disabled = false;
     return;
   }
-  setStatus("waiting", "iframe=✓ api=" + (apiDefined ? "✓" : "✗") + " connecting…");
+  setStatus("waiting", "Verbinde…");
   try {
-    API = await TrimbleConnectWorkspace.connect(window.parent, onEvent);
+    API = await connectWithRetry(10, 2000);
     setStatus("connected", "Verbunden");
     btnPick.disabled = false;
     await refreshModel();
