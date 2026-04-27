@@ -363,12 +363,14 @@ function waitForAPI(ms) {
 
 async function init() {
   // Allow running outside Trimble (dev mode) for layout testing
-  if (window.self === window.top) {
+  var inIframe = window.self !== window.top;
+  var apiDefined = typeof TrimbleConnectWorkspace !== "undefined";
+  if (!inIframe) {
     setStatus("error", "Bitte innerhalb von Trimble Connect öffnen");
     btnPick.disabled = false;
     return;
   }
-  setStatus("waiting", "Verbinde…");
+  setStatus("waiting", "iframe=✓ api=" + (apiDefined ? "✓" : "✗") + " connecting…");
   try {
     API = await TrimbleConnectWorkspace.connect(window.parent, onEvent);
     setStatus("connected", "Verbunden");
