@@ -370,7 +370,7 @@ async function init() {
   }
   setStatus("waiting", "Verbinde…");
   try {
-    API = await TrimbleConnectWorkspace.connect(window.parent, onEvent, 15000);
+    API = await TrimbleConnectWorkspace.connect(window.parent, onEvent);
     setStatus("connected", "Verbunden");
     btnPick.disabled = false;
     await refreshModel();
@@ -413,39 +413,38 @@ async function refreshModel() {
 
 // ═══════════════════════════════════════════
 //  EVENTS
-//  viewer.point.picked → direkte Koordinaten (in Metern, Vector3)
-//  markup.changed → Fallback via getSinglePointMarkups()
+//  viewer.onPicked → direkte Koordinaten (in Metern, Vector3)
+//  markup.onChanged → Fallback via getSinglePointMarkups()
 // ═══════════════════════════════════════════
 function onEvent(event, args) {
   console.log("[TC Event]", event, args);
 
   switch(event) {
 
-    // ── Primär: viewer.point.picked (direkte Klick-Koordinaten) ──
-    case "viewer.point.picked":
+    // ── Primär: viewer.onPicked (direkte Klick-Koordinaten) ──
+    case "viewer.onPicked":
       if (picking && args && args.data && args.data.position) {
         var pos = args.data.position;
-        // position is a Vector3 in meters
         var lv95 = vec3ToLV95(pos.x, pos.y, pos.z);
         addPoint(lv95.E, lv95.N, lv95.H);
       }
       break;
 
     // ── Fallback: Markup-Event → poll getSinglePointMarkups ──
-    case "markup.changed":
+    case "markup.onChanged":
       if (picking) {
         setTimeout(checkForNewMarkup, 400);
       }
       break;
 
     // ── Modell-Events ──
-    case "viewer.modelStateChanged":
-    case "model.stateChanged":
+    case "viewer.onModelStateChanged":
+    case "model.onStateChanged":
       refreshModel();
       break;
 
     // ── Session abgelaufen ──
-    case "embed.session.invalid":
+    case "embed.onSessionInvalid":
       setStatus("error", "Sitzung abgelaufen – bitte TC neu laden");
       btnPick.disabled = true;
       break;
