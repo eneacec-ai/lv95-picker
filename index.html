@@ -374,6 +374,12 @@ async function init() {
     setStatus("connected", "Verbunden");
     btnPick.disabled = false;
     await refreshModel();
+    try {
+      var settings = await API.user.getUserSettings();
+      if (settings && settings.unitSystem && settings.unitSystem !== "metric") {
+        showToast("⚠ TC-Einheiten nicht metrisch – LV95-Koordinaten können falsch sein!", true);
+      }
+    } catch(e) { /* getUserSettings optional */ }
   } catch(e) {
     setStatus("error", "Verbindung fehlgeschlagen: " + e.message);
     console.error("connect error:", e);
@@ -425,22 +431,23 @@ function onEvent(event, args) {
       }
       break;
 
-    // ── Fallback: Markup-Events → poll getSinglePointMarkups ──
+    // ── Fallback: Markup-Event → poll getSinglePointMarkups ──
     case "markup.changed":
-    case "markup.added":
-    case "markups.changed":
-    case "viewer.markups.changed":
       if (picking) {
         setTimeout(checkForNewMarkup, 400);
       }
       break;
 
     // ── Modell-Events ──
-    case "viewer.model.loaded":
-    case "viewer.models.loaded":
-    case "viewer.model.added":
-    case "model.loaded":
+    case "viewer.modelStateChanged":
+    case "model.stateChanged":
       refreshModel();
+      break;
+
+    // ── Session abgelaufen ──
+    case "embed.session.invalid":
+      setStatus("error", "Sitzung abgelaufen – bitte TC neu laden");
+      btnPick.disabled = true;
       break;
   }
 }
