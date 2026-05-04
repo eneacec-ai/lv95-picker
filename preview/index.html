@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CoordinatePicker</title>
+
+  <!-- Modus WC 2.0 -->
+  <link rel="stylesheet" href="https://unpkg.com/@trimble-oss/moduswebcomponents@latest/modus-wc-styles.css">
+  <script type="module">
+    import { defineCustomElements } from 'https://unpkg.com/@trimble-oss/moduswebcomponents/loader/index.js';
+    defineCustomElements();
+  </script>
+
+  <!-- Trimble Connect Workspace API -->
+  <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: 'Open Sans', sans-serif;
+      font-size: 14px;
+      color: #252a2e;
+      background: #fff;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    h1 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .badge.ok  { background: #e8f5e9; color: #2e7d32; }
+    .badge.err { background: #fce4ec; color: #c62828; }
+    .badge::before {
+      content: '';
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    /* Plain buttons — small and calm */
+    .btn {
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid;
+      line-height: 1.6;
+      transition: background 0.12s, color 0.12s;
+      white-space: nowrap;
+    }
+    .btn-primary   { background: #e8f0fb; color: #0063a3; border-color: #0063a3; }
+    .btn-primary:hover   { background: #0063a3; color: #fff; }
+    .btn-secondary { background: #f4f5f7; color: #4a4e59; border-color: #b0b3bf; }
+    .btn-secondary:hover { background: #dfe1e9; }
+    .btn-danger    { background: #fff3f3; color: #b71c1c; border-color: #e57373; }
+    .btn-danger:hover    { background: #b71c1c; color: #fff; }
+
+    .count {
+      font-size: 0.75rem;
+      color: #6a6e79;
+      margin-left: auto;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      width: 100%;
+    }
+
+    .coord-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      table-layout: fixed;
+    }
+
+    .coord-table th {
+      position: relative;
+      text-align: left;
+      font-weight: 600;
+      color: #6a6e79;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      padding: 0.3rem 0.5rem;
+      border-bottom: 2px solid #e0e1e9;
+      white-space: nowrap;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .col-resizer {
+      position: absolute;
+      right: 0; top: 0; bottom: 0;
+      width: 5px;
+      cursor: col-resize;
+      background: transparent;
+    }
+    .col-resizer:hover,
+    .col-resizer.active { background: #0063a3; }
+
+    .coord-table td {
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid #f0f0f5;
+      font-variant-numeric: tabular-nums;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .coord-table tr:hover td { background: #f4f5f7; }
+    .coord-table .num { text-align: right; }
+
+    td.editable { cursor: text; }
+    td.editable:hover { outline: 1px solid #0063a3; border-radius: 2px; background: #f0f5ff; }
+    td.editable input {
+      width: 100%;
+      background: transparent;
+      border: 1px solid #0063a3;
+      border-radius: 3px;
+      font: inherit;
+      padding: 1px 3px;
+      outline: none;
+      color: inherit;
+    }
+
+    .col-idx   { width: 36px; }
+    .col-name  { width: 70px; }
+    .col-coord { width: 110px; }
+    .col-del   { width: 30px; }
+
+    .empty {
+      text-align: center;
+      padding: 2rem;
+      color: #6a6e79;
+      font-size: 0.85rem;
+    }
+
+    .del-btn {
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 2px 4px;
+      color: #bbb;
+      font-size: 0.8rem;
+      border-radius: 2px;
+    }
+    .del-btn:hover { background: #fce4ec; color: #c62828; }
+
+    .log {
+      margin-top: 0.75rem;
+      background: #f4f5f7;
+      border-radius: 4px;
+      padding: 0.5rem 0.75rem;
+      font-family: monospace;
+      font-size: 0.78rem;
+      max-height: 100px;
+      overflow-y: auto;
+    }
+    .log .e     { color: #252a2e; margin-bottom: 2px; }
+    .log .e.err { color: #c62828; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>CoordinatePicker</h1>
+  <span id="badge" class="badge err">Not connected</span>
+</header>
+
+<div class="toolbar" id="toolbar" hidden>
+  <button class="btn btn-primary"   id="btnAddAll">Add all</button>
+  <button class="btn btn-secondary" id="btnAddSel">Add selected</button>
+  <button class="btn btn-secondary" id="btnExport">Export CSV</button>
+  <button class="btn btn-danger"    id="btnClear">Clear</button>
+  <span class="count" id="countLabel"></span>
+</div>
+
+<div class="table-wrap">
+  <div class="empty" id="emptyMsg" hidden>
+    No points yet. Create "Single point" measurements in TC — new ones appear automatically.
+  </div>
+  <table class="coord-table" id="coordTable" hidden>
+    <colgroup>
+      <col class="col-idx">
+      <col class="col-name" id="colName">
+      <col class="col-coord" id="colE">
+      <col class="col-coord" id="colN">
+      <col class="col-coord" id="colH">
+      <col class="col-del">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Point No.<span class="col-resizer" data-col="colName"></span></th>
+        <th class="num">E [m]<span class="col-resizer" data-col="colE"></span></th>
+        <th class="num">N [m]<span class="col-resizer" data-col="colN"></span></th>
+        <th class="num">H [m]<span class="col-resizer" data-col="colH"></span></th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="coordBody"></tbody>
+  </table>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+  let API          = null;
+  let points       = [];      // {id, name, x, y, z} — x/y/z in meters
+  let ptSeq        = 0;
+  let ignoredIds   = new Set(); // TC markup IDs to skip in auto-add
+  let autoAddTimer = null;
+
+  // ── Logging ──────────────────────────────────────────────
+  function log(msg, cls = '') {
+    const el = document.getElementById('log');
+    const d  = document.createElement('div');
+    d.className = 'e' + (cls ? ' ' + cls : '');
+    d.textContent = `[${new Date().toLocaleTimeString('en-GB')}] ${msg}`;
+    el.appendChild(d);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // ── Connection badge ──────────────────────────────────────
+  function setConnected(ok) {
+    const badge = document.getElementById('badge');
+    badge.textContent = ok ? 'Connected' : 'Not connected';
+    badge.className   = 'badge ' + (ok ? 'ok' : 'err');
+    document.getElementById('toolbar').hidden = !ok;
+  }
+
+  // ── Format mm → m ────────────────────────────────────────
+  function mmToM(mm) { return mm / 1000; }
+  function fmt(m)    { return m.toFixed(3); }
+
+  // ── Markup ID helper ─────────────────────────────────────
+  function markupId(m, i) {
+    return String(m.id ?? m.markupId ?? ('idx_' + i));
+  }
+
+  // ── Add markups to local list ─────────────────────────────
+  // skipIgnored=true  → respect ignoredIds (auto-add mode)
+  // skipIgnored=false → add everything regardless (Add all mode)
+  function syncMarkups(markups, skipIgnored) {
+    const knownIds = new Set(points.map(p => p.id));
+    let added = 0;
+
+    markups.forEach((m, i) => {
+      const id   = markupId(m, i);
+      const pick = m.start;
+
+      if (knownIds.has(id)) return;
+      if (skipIgnored && ignoredIds.has(id)) return;
+      if (!pick || pick.positionX === undefined) return;
+
+      ptSeq++;
+      points.push({
+        id,
+        name: 'P' + String(ptSeq).padStart(3, '0'),
+        x: mmToM(pick.positionX),
+        y: mmToM(pick.positionY),
+        z: mmToM(pick.positionZ),
+      });
+      added++;
+    });
+
+    return added;
+  }
+
+  // ── Snapshot existing markups on connect ──────────────────
+  // Puts all current TC markups into ignoredIds so they are
+  // NOT auto-added — only markups created after this point
+  // will appear automatically.
+  async function snapshotExisting() {
+    try {
+      const existing = await API.markup.getSinglePointMarkups();
+      existing.forEach((m, i) => ignoredIds.add(markupId(m, i)));
+      log(`${existing.length} existing markup(s) noted — use "Add all" to include them`);
+    } catch(e) {
+      log(`Could not snapshot existing markups: ${e?.message ?? e}`, 'err');
+    }
+  }
+
+  // ── Auto-add: only new markups (created after connect) ───
+  async function autoAddNew() {
+    try {
+      const result = await API.markup.getSinglePointMarkups();
+      const added  = syncMarkups(result, true);
+      if (added > 0) {
+        log(`${added} new point(s) added automatically`);
+        renderTable();
+      }
+    } catch(e) {
+      log(`Auto-add error: ${e?.message ?? e}`, 'err');
+    }
+  }
+
+  // ── Add selected: only currently selected markup(s) in TC ─
+  async function addSelected() {
+    try {
+      // Try the selection API if available
+      const sel = await API.markup.getSelectedMarkups?.();
+      if (sel && sel.length) {
+        const added = syncMarkups(sel, false);
+        log(added ? `${added} selected point(s) added` : 'Selected point(s) already in list');
+        if (added) renderTable();
+        return;
+      }
+      // Fallback: fetch all and add only the newest one not yet in list
+      const all     = await API.markup.getSinglePointMarkups();
+      const knownIds = new Set(points.map(p => p.id));
+      const newest  = all.filter(m => {
+        const id = markupId(m, all.indexOf(m));
+        return !knownIds.has(id);
+      });
+      if (!newest.length) { log('No new markup found — select a single-point measurement in TC first'); return; }
+      const added = syncMarkups([newest[newest.length - 1]], false);
+      log(added ? `Selected point added` : 'Already in list');
+      if (added) renderTable();
+    } catch(e) {
+      log(`Add selected error: ${e?.message ?? e}`, 'err');
+    }
+  }
+
+  // ── Add all: includes pre-existing TC markups ─────────────
+  async function addAll() {
+    log('Fetching all single point measurements…');
+    try {
+      const result = await API.markup.getSinglePointMarkups();
+      const added  = syncMarkups(result, false);
+      log(`${result.length} markup(s) in TC, ${added} new added`);
+      renderTable();
+    } catch(e) {
+      log(`Error: ${e?.message ?? e}`, 'err');
+    }
+  }
+
+  // ── Editable cell ─────────────────────────────────────────
+  function makeEditable(td, point, field, isNum) {
+    td.classList.add('editable');
+    td.addEventListener('click', () => {
+      if (td.querySelector('input')) return;
+      const inp = document.createElement('input');
+      inp.type  = 'text';
+      inp.value = point[field];
+      td.textContent = '';
+      td.appendChild(inp);
+      inp.focus();
+      inp.select();
+
+      const save = () => {
+        const v = inp.value.trim();
+        if (isNum) {
+          const n = parseFloat(v);
+          if (!isNaN(n)) point[field] = n;
+        } else {
+          if (v) point[field] = v;
+        }
+        renderTable();
+      };
+
+      inp.addEventListener('blur', save);
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter')  { e.preventDefault(); inp.blur(); }
+        if (e.key === 'Escape') { renderTable(); }
+      });
+    });
+  }
+
+  // ── Render table ──────────────────────────────────────────
+  function renderTable() {
+    const body  = document.getElementById('coordBody');
+    const table = document.getElementById('coordTable');
+    const empty = document.getElementById('emptyMsg');
+    const count = document.getElementById('countLabel');
+
+    while (body.firstChild) body.removeChild(body.firstChild);
+
+    if (!points.length) {
+      table.hidden = true;
+      empty.hidden = false;
+      count.textContent = '0 points';
+      return;
+    }
+
+    table.hidden = false;
+    empty.hidden = true;
+    count.textContent = `${points.length} point${points.length !== 1 ? 's' : ''}`;
+
+    points.forEach((p, i) => {
+      const tr = document.createElement('tr');
+
+      const tdIdx = document.createElement('td');
+      tdIdx.textContent = i + 1;
+      tr.appendChild(tdIdx);
+
+      const tdName = document.createElement('td');
+      tdName.textContent = p.name;
+      makeEditable(tdName, p, 'name', false);
+      tr.appendChild(tdName);
+
+      ['x', 'y', 'z'].forEach(field => {
+        const td = document.createElement('td');
+        td.className   = 'num';
+        td.textContent = fmt(p[field]);
+        makeEditable(td, p, field, true);
+        tr.appendChild(td);
+      });
+
+      const tdDel = document.createElement('td');
+      const btn   = document.createElement('button');
+      btn.className   = 'del-btn';
+      btn.title       = 'Delete';
+      btn.textContent = '✕';
+      btn.addEventListener('click', () => {
+        ignoredIds.add(p.id); // prevent auto-re-add
+        points = points.filter(pt => pt.id !== p.id);
+        renderTable();
+      });
+      tdDel.appendChild(btn);
+      tr.appendChild(tdDel);
+
+      body.appendChild(tr);
+    });
+  }
+
+  // ── Export CSV ────────────────────────────────────────────
+  function exportCsv() {
+    if (!points.length) { log('No points to export'); return; }
+    const BOM    = '﻿';
+    const header = 'Point No.;E [m];N [m];H [m]\r\n';
+    const rows   = points.map(p =>
+      `${p.name};${fmt(p.x)};${fmt(p.y)};${fmt(p.z)}`
+    ).join('\r\n');
+
+    const blob = new Blob([BOM + header + rows], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const ts   = new Date().toISOString().slice(0,19).replace('T','_').replace(/:/g,'-');
+    const fn   = 'LV95_' + ts + '.csv';
+
+    const a = document.createElement('a');
+    a.href = url; a.download = fn;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    log(`Exported ${points.length} points as ${fn}`);
+  }
+
+  // ── Column resize ─────────────────────────────────────────
+  function initResizableColumns() {
+    document.querySelectorAll('.col-resizer').forEach(handle => {
+      let startX, startW, col;
+      handle.addEventListener('mousedown', e => {
+        col    = document.getElementById(handle.dataset.col);
+        startX = e.pageX;
+        startW = col.offsetWidth;
+        handle.classList.add('active');
+        const onMove = e => { col.style.width = Math.max(50, startW + (e.pageX - startX)) + 'px'; };
+        const onUp   = () => {
+          handle.classList.remove('active');
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        e.preventDefault();
+      });
+    });
+  }
+
+  // ── TC connect ────────────────────────────────────────────
+  function inIframe() {
+    try { return window.self !== window.top; } catch { return true; }
+  }
+
+  async function connect() {
+    log('Connecting to Trimble Connect…');
+    try {
+      API = await TrimbleConnectWorkspace.connect(window.parent, (event, args) => {
+        log(`TC: ${event}`);
+        if (event === 'markup.onChanged' || event === 'viewer.onPicked') {
+          clearTimeout(autoAddTimer);
+          autoAddTimer = setTimeout(autoAddNew, 700);
+        }
+      });
+      log('Connected!');
+      setConnected(true);
+      await snapshotExisting();
+    } catch (err) {
+      log(`Connection error: ${err?.message ?? err}`, 'err');
+    }
+  }
+
+  // ── Init ──────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('btnAddAll') .addEventListener('click', addAll);
+    document.getElementById('btnAddSel') .addEventListener('click', addSelected);
+    document.getElementById('btnExport') .addEventListener('click', exportCsv);
+    document.getElementById('btnClear')  .addEventListener('click', () => {
+      if (!points.length) return;
+      if (!confirm(`Delete all ${points.length} points?`)) return;
+      points.forEach(p => ignoredIds.add(p.id));
+      points = []; ptSeq = 0;
+      renderTable();
+      log('All points cleared');
+    });
+    initResizableColumns();
+  });
+
+  if (inIframe()) {
+    connect();
+  } else {
+    log('Running outside Trimble Connect — open the extension from within TC to test');
+  }
+</script>
+</body>
+</html>
