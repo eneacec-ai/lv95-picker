@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CoordinatePicker</title>
+  <title>CoordinatePicker 0.3.0-beta</title>
 
   <!-- Modus WC 2.0 -->
   <link rel="stylesheet" href="https://unpkg.com/@trimble-oss/moduswebcomponents@latest/modus-wc-styles.css">
@@ -80,6 +80,7 @@
     .btn-secondary:hover { background: #dfe1e9; }
     .btn-danger    { background: #fff3f3; color: #b71c1c; border-color: #e57373; }
     .btn-danger:hover    { background: #b71c1c; color: #fff; }
+    .btn-icon { padding: 3px 7px; font-size: 0.9rem; line-height: 1.4; }
 
     .count {
       font-size: 0.75rem;
@@ -171,25 +172,14 @@
     }
     .del-btn:hover { background: #fce4ec; color: #c62828; }
 
-    .log {
-      margin-top: 0.75rem;
-      background: #f4f5f7;
-      border-radius: 4px;
-      padding: 0.5rem 0.75rem;
-      font-family: monospace;
-      font-size: 0.78rem;
-      max-height: 100px;
-      overflow-y: auto;
-    }
-    .log .e     { color: #252a2e; margin-bottom: 2px; }
-    .log .e.err { color: #c62828; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>CoordinatePicker</h1>
+  <h1>CoordinatePicker <span style="font-size:0.7rem;font-weight:400;color:#6a6e79;letter-spacing:.03em;">0.3.0-beta</span></h1>
   <span id="badge" class="badge err">Not connected</span>
+  <button class="btn btn-secondary btn-icon" id="btnSync" title="Sync with TC" hidden>↻</button>
 </header>
 
 <div class="toolbar" id="toolbar" hidden>
@@ -217,17 +207,15 @@
       <tr>
         <th>#</th>
         <th>Point No.<span class="col-resizer" data-col="colName"></span></th>
-        <th class="num">E [m]<span class="col-resizer" data-col="colE"></span></th>
-        <th class="num">N [m]<span class="col-resizer" data-col="colN"></span></th>
-        <th class="num">H [m]<span class="col-resizer" data-col="colH"></span></th>
+        <th class="num">X [m]<span class="col-resizer" data-col="colE"></span></th>
+        <th class="num">Y [m]<span class="col-resizer" data-col="colN"></span></th>
+        <th class="num">Z [m]<span class="col-resizer" data-col="colH"></span></th>
         <th></th>
       </tr>
     </thead>
     <tbody id="coordBody"></tbody>
   </table>
 </div>
-
-<div class="log" id="log"></div>
 
 <script>
   let API          = null;
@@ -236,14 +224,10 @@
   let ignoredIds   = new Set(); // TC markup IDs to skip in auto-add
   let autoAddTimer = null;
 
-  // ── Logging ──────────────────────────────────────────────
+  // ── Logging (console only — not shown in UI) ─────────────
   function log(msg, cls = '') {
-    const el = document.getElementById('log');
-    const d  = document.createElement('div');
-    d.className = 'e' + (cls ? ' ' + cls : '');
-    d.textContent = `[${new Date().toLocaleTimeString('en-GB')}] ${msg}`;
-    el.appendChild(d);
-    el.scrollTop = el.scrollHeight;
+    const prefix = `[CoordinatePicker ${new Date().toLocaleTimeString('en-GB')}]`;
+    cls === 'err' ? console.error(prefix, msg) : console.log(prefix, msg);
   }
 
   // ── Connection badge ──────────────────────────────────────
@@ -252,6 +236,7 @@
     badge.textContent = ok ? 'Connected' : 'Not connected';
     badge.className   = 'badge ' + (ok ? 'ok' : 'err');
     document.getElementById('toolbar').hidden = !ok;
+    document.getElementById('btnSync').hidden  = !ok;
   }
 
   // ── Format mm → m ────────────────────────────────────────
@@ -281,6 +266,7 @@
       ptSeq++;
       points.push({
         id,
+        tcId: m.id,   // numeric TC id, needed for removeMarkups()
         name: 'P' + String(ptSeq).padStart(3, '0'),
         x: mmToM(pick.positionX),
         y: mmToM(pick.positionY),
@@ -306,17 +292,29 @@
     }
   }
 
-  // ── Auto-add: only new markups (created after connect) ───
+  // ── Auto-add + auto-remove on markup.onChanged ───────────
   async function autoAddNew() {
     try {
-      const result = await API.markup.getSinglePointMarkups();
-      const added  = syncMarkups(result, true);
-      if (added > 0) {
-        log(`${added} new point(s) added automatically`);
+      const result  = await API.markup.getSinglePointMarkups();
+      const tcIds   = new Set(result.map((m, i) => markupId(m, i)));
+
+      // Remove points whose TC markup no longer exists (and clean up their labels)
+      const removedPoints = points.filter(p => !tcIds.has(p.id));
+      for (const p of removedPoints) await removeTextLabel(p);
+      points = points.filter(p => tcIds.has(p.id));
+
+      const countBefore = points.length;
+      const added       = syncMarkups(result, true);
+      const newPoints   = points.slice(countBefore);
+      for (const p of newPoints) await addTextLabel(p);
+
+      if (added > 0 || removedPoints.length > 0) {
+        if (added)                log(`${added} point(s) added automatically`);
+        if (removedPoints.length) log(`${removedPoints.length} point(s) removed (deleted in TC)`);
         renderTable();
       }
     } catch(e) {
-      log(`Auto-add error: ${e?.message ?? e}`, 'err');
+      log(`Auto-sync error: ${e?.message ?? e}`, 'err');
     }
   }
 
@@ -326,7 +324,9 @@
       // Try the selection API if available
       const sel = await API.markup.getSelectedMarkups?.();
       if (sel && sel.length) {
+        const cntBefore = points.length;
         const added = syncMarkups(sel, false);
+        for (const p of points.slice(cntBefore)) await addTextLabel(p);
         log(added ? `${added} selected point(s) added` : 'Selected point(s) already in list');
         if (added) renderTable();
         return;
@@ -339,7 +339,9 @@
         return !knownIds.has(id);
       });
       if (!newest.length) { log('No new markup found — select a single-point measurement in TC first'); return; }
+      const cntB  = points.length;
       const added = syncMarkups([newest[newest.length - 1]], false);
+      for (const p of points.slice(cntB)) await addTextLabel(p);
       log(added ? `Selected point added` : 'Already in list');
       if (added) renderTable();
     } catch(e) {
@@ -351,8 +353,11 @@
   async function addAll() {
     log('Fetching all single point measurements…');
     try {
-      const result = await API.markup.getSinglePointMarkups();
-      const added  = syncMarkups(result, false);
+      const result    = await API.markup.getSinglePointMarkups();
+      const countBefore = points.length;
+      const added     = syncMarkups(result, false);
+      const newPoints = points.slice(countBefore);
+      for (const p of newPoints) await addTextLabel(p);
       log(`${result.length} markup(s) in TC, ${added} new added`);
       renderTable();
     } catch(e) {
@@ -360,14 +365,48 @@
     }
   }
 
-  // ── Editable cell ─────────────────────────────────────────
-  function makeEditable(td, point, field, isNum) {
+  // ── Text label in TC ──────────────────────────────────────
+  async function addTextLabel(point) {
+    if (!API || point.labelTcId !== undefined) return;
+    try {
+      const xMm = Math.round(point.x * 1000);
+      const yMm = Math.round(point.y * 1000);
+      const zMm = Math.round(point.z * 1000);
+      const result = await API.markup.addTextMarkup([{
+        text:  point.name,
+        start: { positionX: xMm, positionY: yMm, positionZ: zMm },
+        end:   { positionX: xMm, positionY: yMm, positionZ: zMm + 200 },
+        size:  10,
+      }]);
+      if (result?.[0]?.id !== undefined) point.labelTcId = result[0].id;
+    } catch(e) {
+      log(`Label error: ${e?.message ?? e}`, 'err');
+    }
+  }
+
+  async function removeTextLabel(point) {
+    if (!API || point.labelTcId === undefined) return;
+    try {
+      await API.markup.removeMarkups([point.labelTcId]);
+      delete point.labelTcId;
+    } catch(e) {
+      log(`Remove label error: ${e?.message ?? e}`, 'err');
+    }
+  }
+
+  async function updateTextLabel(point) {
+    await removeTextLabel(point);
+    await addTextLabel(point);
+  }
+
+  // ── Editable point name (uniqueness enforced) ────────────
+  function makeNameEditable(td, point) {
     td.classList.add('editable');
     td.addEventListener('click', () => {
       if (td.querySelector('input')) return;
       const inp = document.createElement('input');
       inp.type  = 'text';
-      inp.value = point[field];
+      inp.value = point.name;
       td.textContent = '';
       td.appendChild(inp);
       inp.focus();
@@ -375,12 +414,16 @@
 
       const save = () => {
         const v = inp.value.trim();
-        if (isNum) {
-          const n = parseFloat(v);
-          if (!isNaN(n)) point[field] = n;
-        } else {
-          if (v) point[field] = v;
+        if (!v) { renderTable(); return; }
+        const duplicate = points.some(p => p.id !== point.id && p.name === v);
+        if (duplicate) {
+          inp.style.borderColor = '#c62828';
+          inp.title = `"${v}" is already used`;
+          inp.focus();
+          return;
         }
+        point.name = v;
+        updateTextLabel(point);
         renderTable();
       };
 
@@ -421,14 +464,13 @@
 
       const tdName = document.createElement('td');
       tdName.textContent = p.name;
-      makeEditable(tdName, p, 'name', false);
+      makeNameEditable(tdName, p);
       tr.appendChild(tdName);
 
       ['x', 'y', 'z'].forEach(field => {
         const td = document.createElement('td');
         td.className   = 'num';
         td.textContent = fmt(p[field]);
-        makeEditable(td, p, field, true);
         tr.appendChild(td);
       });
 
@@ -437,8 +479,17 @@
       btn.className   = 'del-btn';
       btn.title       = 'Delete';
       btn.textContent = '✕';
-      btn.addEventListener('click', () => {
-        ignoredIds.add(p.id); // prevent auto-re-add
+      btn.addEventListener('click', async () => {
+        await removeTextLabel(p);
+        if (API && p.tcId !== undefined) {
+          try {
+            await API.markup.removeMarkups([p.tcId]);
+            log(`${p.name} removed from TC`);
+          } catch(e) {
+            log(`Could not remove from TC: ${e?.message ?? e}`, 'err');
+          }
+        }
+        ignoredIds.add(p.id);
         points = points.filter(pt => pt.id !== p.id);
         renderTable();
       });
@@ -453,7 +504,7 @@
   function exportCsv() {
     if (!points.length) { log('No points to export'); return; }
     const BOM    = '﻿';
-    const header = 'Point No.;E [m];N [m];H [m]\r\n';
+    const header = 'Point No.;X [m];Y [m];Z [m]\r\n';
     const rows   = points.map(p =>
       `${p.name};${fmt(p.x)};${fmt(p.y)};${fmt(p.z)}`
     ).join('\r\n');
@@ -503,7 +554,11 @@
     log('Connecting to Trimble Connect…');
     try {
       API = await TrimbleConnectWorkspace.connect(window.parent, (event, args) => {
-        log(`TC: ${event}`);
+        if (event === 'viewer.onSelectionChanged' || event === 'viewer.onPicked') {
+          log(`TC: ${event} — ${JSON.stringify(args)}`);
+        } else {
+          log(`TC: ${event}`);
+        }
         if (event === 'markup.onChanged' || event === 'viewer.onPicked') {
           clearTimeout(autoAddTimer);
           autoAddTimer = setTimeout(autoAddNew, 700);
@@ -521,14 +576,28 @@
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnAddAll') .addEventListener('click', addAll);
     document.getElementById('btnAddSel') .addEventListener('click', addSelected);
+    document.getElementById('btnSync')   .addEventListener('click', autoAddNew);
     document.getElementById('btnExport') .addEventListener('click', exportCsv);
-    document.getElementById('btnClear')  .addEventListener('click', () => {
+    document.getElementById('btnClear')  .addEventListener('click', async () => {
       if (!points.length) return;
-      if (!confirm(`Delete all ${points.length} points?`)) return;
+      if (!confirm(
+        `Delete all ${points.length} point(s) from Trimble Connect?\n\n` +
+        `This will permanently remove both the measurements and their labels from the model.\n\n` +
+        `This cannot be undone.`
+      )) return;
+      for (const p of points) await removeTextLabel(p);
+      const tcIds = points.filter(p => p.tcId !== undefined).map(p => p.tcId);
+      if (API && tcIds.length) {
+        try {
+          await API.markup.removeMarkups(tcIds);
+        } catch(e) {
+          log(`Could not remove measurements from TC: ${e?.message ?? e}`, 'err');
+        }
+      }
       points.forEach(p => ignoredIds.add(p.id));
       points = []; ptSeq = 0;
       renderTable();
-      log('All points cleared');
+      log('All points and labels removed from TC');
     });
     initResizableColumns();
   });
