@@ -415,6 +415,42 @@
     await addTextLabel(point);
   }
 
+  // ── Remove stale labels near existing points ─────────────
+  // Runs after view-restore: a saved view may revive an old label
+  // (e.g., renamed "22222" → "33333", view still has "22222").
+  // Removes any text markup at a current point's position that is
+  // NOT the known labelTcId.
+  async function cleanupOrphanLabels() {
+    if (!points.length) return;
+    try {
+      const textMarkups    = await API.markup.getTextMarkups();
+      const knownLabelIds  = new Set(points.map(p => p.labelTcId).filter(id => id !== undefined));
+      const orphanIds      = [];
+
+      for (const p of points) {
+        const xMm = Math.round(p.x * 1000);
+        const yMm = Math.round(p.y * 1000);
+        const zMm = Math.round(p.z * 1000);
+        textMarkups.forEach(t => {
+          if (!t.start || t.id === undefined) return;
+          if (knownLabelIds.has(t.id)) return;
+          if (Math.abs(t.start.positionX - xMm) < 50 &&
+              Math.abs(t.start.positionY - yMm) < 50 &&
+              Math.abs(t.start.positionZ - zMm) < 50) {
+            orphanIds.push(t.id);
+          }
+        });
+      }
+
+      if (orphanIds.length) {
+        await API.markup.removeMarkups(orphanIds);
+        log(`Removed ${orphanIds.length} stale label(s) from view restore`);
+      }
+    } catch(e) {
+      log(`Cleanup error: ${e?.message ?? e}`, 'err');
+    }
+  }
+
   // ── Match orphaned TC labels to points by position ────────
   // Handles labels restored from a saved TC view that the plugin
   // no longer has IDs for. Tolerance: 50 mm.
@@ -617,6 +653,9 @@
         if (event === 'markup.onChanged' || event === 'viewer.onPicked') {
           clearTimeout(autoAddTimer);
           autoAddTimer = setTimeout(autoAddNew, 700);
+        }
+        if (event === 'view.onViewAction') {
+          setTimeout(cleanupOrphanLabels, 1000);
         }
       });
       log('Connected!');
