@@ -385,7 +385,7 @@
       const result = await API.markup.addTextMarkup([{
         text:  point.name,
         start: { positionX: xMm, positionY: yMm, positionZ: zMm },
-        end:   { positionX: xMm, positionY: yMm, positionZ: zMm },
+        end:   { positionX: xMm, positionY: yMm, positionZ: zMm + 100 },
         size:  10,
       }]);
       if (result?.[0]?.id !== undefined) { point.labelTcId = result[0].id; lsSave(point); }
