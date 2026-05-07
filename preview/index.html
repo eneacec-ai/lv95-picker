@@ -391,7 +391,7 @@
       const result = await API.markup.addTextMarkup([{
         text:  point.name,
         start: { positionX: xMm, positionY: yMm, positionZ: zMm },
-        end:   { positionX: xMm, positionY: yMm, positionZ: zMm + 100 },
+        end:   { positionX: xMm, positionY: yMm, positionZ: zMm + 200 },
         size:  10,
       }]);
       if (result?.[0]?.id !== undefined) { point.labelTcId = result[0].id; lsSave(point); }
@@ -434,14 +434,17 @@
         );
         if (match?.id !== undefined) {
           p.labelTcId = match.id;
+          // Recover the saved name from the existing label text
+          if (match.text) p.name = match.text;
+          lsSave(p);
+          // Normalize the label offset/size in TC
           await API.markup.addTextMarkup([{
             id:    match.id,
             text:  p.name,
             start: { positionX: xMm, positionY: yMm, positionZ: zMm },
-            end:   { positionX: xMm, positionY: yMm, positionZ: zMm + 100 },
+            end:   { positionX: xMm, positionY: yMm, positionZ: zMm + 200 },
             size:  10,
           }]);
-          lsSave(p);
         }
       }
     } catch(e) {
