@@ -230,6 +230,13 @@
     cls === 'err' ? console.error(prefix, msg) : console.log(prefix, msg);
   }
 
+  // ── localStorage — persist point names and label IDs ────────
+  const LS_KEY = 'lv95picker_pts';
+  function lsLoad()         { try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch { return {}; } }
+  function lsSave(point)    { const db = lsLoad(); db[String(point.tcId)] = { name: point.name, labelTcId: point.labelTcId }; localStorage.setItem(LS_KEY, JSON.stringify(db)); }
+  function lsRemove(point)  { const db = lsLoad(); delete db[String(point.tcId)]; localStorage.setItem(LS_KEY, JSON.stringify(db)); }
+  function lsClear()        { localStorage.removeItem(LS_KEY); }
+
   // ── Connection badge ──────────────────────────────────────
   function setConnected(ok) {
     const badge = document.getElementById('badge');
@@ -253,6 +260,7 @@
   // skipIgnored=false → add everything regardless (Add all mode)
   function syncMarkups(markups, skipIgnored) {
     const knownIds = new Set(points.map(p => p.id));
+    const stored   = lsLoad();
     let added = 0;
 
     markups.forEach((m, i) => {
@@ -264,10 +272,12 @@
       if (!pick || pick.positionX === undefined) return;
 
       ptSeq++;
+      const saved = stored[String(m.id)];
       points.push({
         id,
-        tcId: m.id,   // numeric TC id, needed for removeMarkups()
-        name: 'P' + String(ptSeq).padStart(3, '0'),
+        tcId:      m.id,
+        labelTcId: saved?.labelTcId,  // restores existing TC label — avoids duplicate
+        name:      saved?.name ?? ('P' + String(ptSeq).padStart(3, '0')),
         x: mmToM(pick.positionX),
         y: mmToM(pick.positionY),
         z: mmToM(pick.positionZ),
@@ -375,10 +385,10 @@
       const result = await API.markup.addTextMarkup([{
         text:  point.name,
         start: { positionX: xMm, positionY: yMm, positionZ: zMm },
-        end:   { positionX: xMm, positionY: yMm, positionZ: zMm + 200 },
+        end:   { positionX: xMm, positionY: yMm, positionZ: zMm },
         size:  10,
       }]);
-      if (result?.[0]?.id !== undefined) point.labelTcId = result[0].id;
+      if (result?.[0]?.id !== undefined) { point.labelTcId = result[0].id; lsSave(point); }
     } catch(e) {
       log(`Label error: ${e?.message ?? e}`, 'err');
     }
@@ -423,6 +433,7 @@
           return;
         }
         point.name = v;
+        lsSave(point);
         updateTextLabel(point);
         renderTable();
       };
@@ -489,6 +500,7 @@
             log(`Could not remove from TC: ${e?.message ?? e}`, 'err');
           }
         }
+        lsRemove(p);
         ignoredIds.add(p.id);
         points = points.filter(pt => pt.id !== p.id);
         renderTable();
@@ -594,6 +606,7 @@
           log(`Could not remove measurements from TC: ${e?.message ?? e}`, 'err');
         }
       }
+      lsClear();
       points.forEach(p => ignoredIds.add(p.id));
       points = []; ptSeq = 0;
       renderTable();
