@@ -316,6 +316,7 @@
       const countBefore = points.length;
       const added       = syncMarkups(result, true);
       const newPoints   = points.slice(countBefore);
+      await matchOrphanLabels(newPoints);
       for (const p of newPoints) await addTextLabel(p);
 
       if (added > 0 || removedPoints.length > 0) {
@@ -336,7 +337,9 @@
       if (sel && sel.length) {
         const cntBefore = points.length;
         const added = syncMarkups(sel, false);
-        for (const p of points.slice(cntBefore)) await addTextLabel(p);
+        const selNew = points.slice(cntBefore);
+        await matchOrphanLabels(selNew);
+        for (const p of selNew) await addTextLabel(p);
         log(added ? `${added} selected point(s) added` : 'Selected point(s) already in list');
         if (added) renderTable();
         return;
@@ -349,9 +352,11 @@
         return !knownIds.has(id);
       });
       if (!newest.length) { log('No new markup found — select a single-point measurement in TC first'); return; }
-      const cntB  = points.length;
-      const added = syncMarkups([newest[newest.length - 1]], false);
-      for (const p of points.slice(cntB)) await addTextLabel(p);
+      const cntB   = points.length;
+      const added  = syncMarkups([newest[newest.length - 1]], false);
+      const newest2 = points.slice(cntB);
+      await matchOrphanLabels(newest2);
+      for (const p of newest2) await addTextLabel(p);
       log(added ? `Selected point added` : 'Already in list');
       if (added) renderTable();
     } catch(e) {
@@ -367,6 +372,7 @@
       const countBefore = points.length;
       const added     = syncMarkups(result, false);
       const newPoints = points.slice(countBefore);
+      await matchOrphanLabels(newPoints);
       for (const p of newPoints) await addTextLabel(p);
       log(`${result.length} markup(s) in TC, ${added} new added`);
       renderTable();
@@ -407,6 +413,40 @@
   async function updateTextLabel(point) {
     await removeTextLabel(point);
     await addTextLabel(point);
+  }
+
+  // ── Match orphaned TC labels to points by position ────────
+  // Handles labels restored from a saved TC view that the plugin
+  // no longer has IDs for. Tolerance: 50 mm.
+  async function matchOrphanLabels(pointsList) {
+    try {
+      const textMarkups = await API.markup.getTextMarkups();
+      for (const p of pointsList) {
+        if (p.labelTcId !== undefined) continue;
+        const xMm = Math.round(p.x * 1000);
+        const yMm = Math.round(p.y * 1000);
+        const zMm = Math.round(p.z * 1000);
+        const match = textMarkups.find(t =>
+          t.start &&
+          Math.abs(t.start.positionX - xMm) < 50 &&
+          Math.abs(t.start.positionY - yMm) < 50 &&
+          Math.abs(t.start.positionZ - zMm) < 50
+        );
+        if (match?.id !== undefined) {
+          p.labelTcId = match.id;
+          await API.markup.addTextMarkup([{
+            id:    match.id,
+            text:  p.name,
+            start: { positionX: xMm, positionY: yMm, positionZ: zMm },
+            end:   { positionX: xMm, positionY: yMm, positionZ: zMm + 100 },
+            size:  10,
+          }]);
+          lsSave(p);
+        }
+      }
+    } catch(e) {
+      log(`Label match error: ${e?.message ?? e}`, 'err');
+    }
   }
 
   // ── Editable point name (uniqueness enforced) ────────────
@@ -597,7 +637,21 @@
         `This will permanently remove both the measurements and their labels from the model.\n\n` +
         `This cannot be undone.`
       )) return;
+      const positions = points.map(p => ({
+        x: Math.round(p.x * 1000), y: Math.round(p.y * 1000), z: Math.round(p.z * 1000)
+      }));
       for (const p of points) await removeTextLabel(p);
+      try {
+        const allText   = await API.markup.getTextMarkups();
+        const orphanIds = allText
+          .filter(t => t.start && t.id !== undefined && positions.some(pos =>
+            Math.abs(t.start.positionX - pos.x) < 50 &&
+            Math.abs(t.start.positionY - pos.y) < 50 &&
+            Math.abs(t.start.positionZ - pos.z) < 50
+          ))
+          .map(t => t.id);
+        if (orphanIds.length) await API.markup.removeMarkups(orphanIds);
+      } catch(e) { log(`Orphan label cleanup error: ${e?.message ?? e}`, 'err'); }
       const tcIds = points.filter(p => p.tcId !== undefined).map(p => p.tcId);
       if (API && tcIds.length) {
         try {
