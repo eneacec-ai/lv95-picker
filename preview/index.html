@@ -222,7 +222,9 @@
   let points       = [];      // {id, name, x, y, z} — x/y/z in meters
   let ptSeq        = 0;
   let ignoredIds   = new Set(); // TC markup IDs to skip in auto-add
-  let autoAddTimer = null;
+  let autoAddTimer      = null;
+  let autoAddRunning    = false;
+  let renamingInProgress = false;
 
   // ── Logging (console only — not shown in UI) ─────────────
   function log(msg, cls = '') {
@@ -252,7 +254,11 @@
 
   // ── Markup ID helper ─────────────────────────────────────
   function markupId(m, i) {
-    return String(m.id ?? m.markupId ?? ('idx_' + i));
+    if (m.id       !== undefined) return String(m.id);
+    if (m.markupId !== undefined) return String(m.markupId);
+    // Position-based fallback — stable across calls regardless of order
+    if (m.start) return `pos_${m.start.positionX}_${m.start.positionY}_${m.start.positionZ}`;
+    return 'idx_' + i;
   }
 
   // ── Add markups to local list ─────────────────────────────
@@ -304,6 +310,8 @@
 
   // ── Auto-add + auto-remove on markup.onChanged ───────────
   async function autoAddNew() {
+    if (autoAddRunning) return;
+    autoAddRunning = true;
     try {
       const result  = await API.markup.getSinglePointMarkups();
       const tcIds   = new Set(result.map((m, i) => markupId(m, i)));
@@ -326,6 +334,8 @@
       }
     } catch(e) {
       log(`Auto-sync error: ${e?.message ?? e}`, 'err');
+    } finally {
+      autoAddRunning = false;
     }
   }
 
@@ -411,8 +421,14 @@
   }
 
   async function updateTextLabel(point) {
-    await removeTextLabel(point);
-    await addTextLabel(point);
+    renamingInProgress = true;
+    clearTimeout(autoAddTimer);
+    try {
+      await removeTextLabel(point);
+      await addTextLabel(point);
+    } finally {
+      renamingInProgress = false;
+    }
   }
 
   // ── Remove stale labels near existing points ─────────────
@@ -470,17 +486,8 @@
         );
         if (match?.id !== undefined) {
           p.labelTcId = match.id;
-          // Recover the saved name from the existing label text
-          if (match.text) p.name = match.text;
           lsSave(p);
-          // Normalize the label offset/size in TC
-          await API.markup.addTextMarkup([{
-            id:    match.id,
-            text:  p.name,
-            start: { positionX: xMm, positionY: yMm, positionZ: zMm },
-            end:   { positionX: xMm, positionY: yMm, positionZ: zMm + 200 },
-            size:  10,
-          }]);
+          // Do NOT call addTextMarkup here — it fires events that cause cascading autoAddNew calls
         }
       }
     } catch(e) {
@@ -501,7 +508,7 @@
       inp.focus();
       inp.select();
 
-      const save = () => {
+      const save = async () => {
         const v = inp.value.trim();
         if (!v) { renderTable(); return; }
         const duplicate = points.some(p => p.id !== point.id && p.name === v);
@@ -513,7 +520,7 @@
         }
         point.name = v;
         lsSave(point);
-        updateTextLabel(point);
+        await updateTextLabel(point);
         renderTable();
       };
 
@@ -651,8 +658,10 @@
           log(`TC: ${event}`);
         }
         if (event === 'markup.onChanged' || event === 'viewer.onPicked') {
-          clearTimeout(autoAddTimer);
-          autoAddTimer = setTimeout(autoAddNew, 700);
+          if (!renamingInProgress) {
+            clearTimeout(autoAddTimer);
+            autoAddTimer = setTimeout(autoAddNew, 700);
+          }
         }
       });
       log('Connected!');
