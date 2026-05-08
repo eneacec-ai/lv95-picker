@@ -654,9 +654,6 @@
           clearTimeout(autoAddTimer);
           autoAddTimer = setTimeout(autoAddNew, 700);
         }
-        if (event === 'view.onViewAction') {
-          setTimeout(cleanupOrphanLabels, 1000);
-        }
       });
       log('Connected!');
       setConnected(true);
