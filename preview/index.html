@@ -225,6 +225,10 @@
   let autoAddTimer      = null;
   let autoAddRunning    = false;
   let renamingInProgress = false;
+  let pendingViewNav        = false;
+  let pendingViewTimer      = null;
+  let viewNavigating        = false;
+  let viewNavSnapshotTimer  = null;
 
   // ── Logging (console only — not shown in UI) ─────────────
   function log(msg, cls = '') {
@@ -254,11 +258,14 @@
   function fmt(m)    { return m.toFixed(3); }
 
   // ── Markup ID helper ─────────────────────────────────────
+  // Position-based identity is PRIMARY — TC may reassign m.id during
+  // operations like "update view", but the position is stable.
+  // This prevents points from being treated as deleted+re-added,
+  // which would lose their labelTcId and name.
   function markupId(m, i) {
+    if (m.start) return `pos_${m.start.positionX}_${m.start.positionY}_${m.start.positionZ}`;
     if (m.id       !== undefined) return String(m.id);
     if (m.markupId !== undefined) return String(m.markupId);
-    // Position-based fallback — stable across calls regardless of order
-    if (m.start) return `pos_${m.start.positionX}_${m.start.positionY}_${m.start.positionZ}`;
     return 'idx_' + i;
   }
 
@@ -452,9 +459,9 @@
         textMarkups.forEach(t => {
           if (!t.start || t.id === undefined) return;
           if (knownLabelIds.has(t.id)) return;
-          if (Math.abs(t.start.positionX - xMm) < 50 &&
-              Math.abs(t.start.positionY - yMm) < 50 &&
-              Math.abs(t.start.positionZ - zMm) < 50) {
+          if (Math.abs(t.start.positionX - xMm) < 1 &&
+              Math.abs(t.start.positionY - yMm) < 1 &&
+              Math.abs(t.start.positionZ - zMm) < 1) {
             orphanIds.push(t.id);
           }
         });
@@ -471,7 +478,7 @@
 
   // ── Match orphaned TC labels to points by position ────────
   // Handles labels restored from a saved TC view that the plugin
-  // no longer has IDs for. Tolerance: 50 mm.
+  // no longer has IDs for. Tolerance: 1 mm.
   async function matchOrphanLabels(pointsList) {
     try {
       const textMarkups = await API.markup.getTextMarkups();
@@ -482,9 +489,9 @@
         const zMm = Math.round(p.z * 1000);
         const match = textMarkups.find(t =>
           t.start &&
-          Math.abs(t.start.positionX - xMm) < 50 &&
-          Math.abs(t.start.positionY - yMm) < 50 &&
-          Math.abs(t.start.positionZ - zMm) < 50
+          Math.abs(t.start.positionX - xMm) < 1 &&
+          Math.abs(t.start.positionY - yMm) < 1 &&
+          Math.abs(t.start.positionZ - zMm) < 1
         );
         if (match?.id !== undefined) {
           p.labelTcId = match.id;
@@ -651,16 +658,51 @@
   async function connect() {
     log('Connecting to Trimble Connect…');
     try {
-      API = await TrimbleConnectWorkspace.connect(window.parent, (event, args) => {
-        if (event === 'viewer.onSelectionChanged' || event === 'viewer.onPicked') {
+      API = await TrimbleConnectWorkspace.connect(window.parent, async (event, args) => {
+        if (event === 'viewer.onSelectionChanged' || event === 'viewer.onPicked' || event === 'view.onViewAction') {
           log(`TC: ${event} — ${JSON.stringify(args)}`);
         } else {
           log(`TC: ${event}`);
         }
+
+        // View navigation detection: view.onViewAction followed by markup.onChanged
+        // means TC is restoring markups from a view snapshot (= navigation).
+        // Create/update/delete don't cause markup.onChanged.
+        if (event === 'view.onViewAction') {
+          pendingViewNav = true;
+          clearTimeout(pendingViewTimer);
+          pendingViewTimer = setTimeout(() => { pendingViewNav = false; }, 1500);
+        }
+
+        if (event === 'markup.onChanged') {
+          if (pendingViewNav) {
+            // First markup change after view.onViewAction = navigation
+            pendingViewNav = false;
+            clearTimeout(pendingViewTimer);
+            viewNavigating = true;
+            clearTimeout(autoAddTimer);
+            points = []; ptSeq = 0;
+            renderTable();
+            log('View navigation detected — list cleared');
+          }
+          if (viewNavigating) {
+            // Debounce snapshot while more markup events arrive during restore
+            clearTimeout(viewNavSnapshotTimer);
+            viewNavSnapshotTimer = setTimeout(async () => {
+              try {
+                const existing = await API.markup.getSinglePointMarkups();
+                ignoredIds = new Set(existing.map((m, i) => markupId(m, i)));
+              } catch(e) { log(`Snapshot error: ${e?.message ?? e}`, 'err'); }
+              viewNavigating = false;
+            }, 800);
+            return;
+          }
+        }
+
         if (event === 'markup.onChanged' || event === 'viewer.onPicked') {
           if (!renamingInProgress) {
             clearTimeout(autoAddTimer);
-            autoAddTimer = setTimeout(autoAddNew, 700);
+            autoAddTimer = setTimeout(autoAddNew, 250);
           }
         }
       });
@@ -693,20 +735,25 @@
         const allText   = await API.markup.getTextMarkups();
         const orphanIds = allText
           .filter(t => t.start && t.id !== undefined && positions.some(pos =>
-            Math.abs(t.start.positionX - pos.x) < 50 &&
-            Math.abs(t.start.positionY - pos.y) < 50 &&
-            Math.abs(t.start.positionZ - pos.z) < 50
+            Math.abs(t.start.positionX - pos.x) < 1 &&
+            Math.abs(t.start.positionY - pos.y) < 1 &&
+            Math.abs(t.start.positionZ - pos.z) < 1
           ))
           .map(t => t.id);
         if (orphanIds.length) await API.markup.removeMarkups(orphanIds);
       } catch(e) { log(`Orphan label cleanup error: ${e?.message ?? e}`, 'err'); }
-      const tcIds = points.filter(p => p.tcId !== undefined).map(p => p.tcId);
-      if (API && tcIds.length) {
-        try {
-          await API.markup.removeMarkups(tcIds);
-        } catch(e) {
-          log(`Could not remove measurements from TC: ${e?.message ?? e}`, 'err');
-        }
+      try {
+        const allPts   = await API.markup.getSinglePointMarkups();
+        const ptIds    = allPts
+          .filter(m => m.start && m.id !== undefined && positions.some(pos =>
+            Math.abs(m.start.positionX - pos.x) < 1 &&
+            Math.abs(m.start.positionY - pos.y) < 1 &&
+            Math.abs(m.start.positionZ - pos.z) < 1
+          ))
+          .map(m => m.id);
+        if (ptIds.length) await API.markup.removeMarkups(ptIds);
+      } catch(e) {
+        log(`Could not remove measurements from TC: ${e?.message ?? e}`, 'err');
       }
       lsClearLabels();
       points.forEach(p => ignoredIds.add(p.id));
