@@ -225,10 +225,6 @@
   let autoAddTimer      = null;
   let autoAddRunning    = false;
   let renamingInProgress = false;
-  let pendingViewNav        = false;
-  let pendingViewTimer      = null;
-  let viewNavigating        = false;
-  let viewNavSnapshotTimer  = null;
 
   // ── Logging (console only — not shown in UI) ─────────────
   function log(msg, cls = '') {
@@ -315,7 +311,7 @@
     }
   }
 
-  // ── Auto-add + auto-remove on markup.onChanged ───────────
+  // ── Auto-add + auto-remove on viewer.onMarkupChanged ─────
   async function autoAddNew() {
     if (autoAddRunning) return;
     autoAddRunning = true;
@@ -665,41 +661,20 @@
           log(`TC: ${event}`);
         }
 
-        // View navigation detection: view.onViewAction followed by markup.onChanged
-        // means TC is restoring markups from a view snapshot (= navigation).
-        // Create/update/delete don't cause markup.onChanged.
-        if (event === 'view.onViewAction') {
-          pendingViewNav = true;
-          clearTimeout(pendingViewTimer);
-          pendingViewTimer = setTimeout(() => { pendingViewNav = false; }, 1500);
+        // View navigation: TC sends action="set" when user clicks an existing view.
+        // Other actions are "created", "updated", "removed" — those we ignore.
+        if (event === 'view.onViewAction' && args?.data?.action === 'set') {
+          clearTimeout(autoAddTimer);
+          points = []; ptSeq = 0;
+          renderTable();
+          log('View navigation detected — list cleared');
+          try {
+            const existing = await API.markup.getSinglePointMarkups();
+            ignoredIds = new Set(existing.map((m, i) => markupId(m, i)));
+          } catch(e) { log(`Snapshot error: ${e?.message ?? e}`, 'err'); }
         }
 
-        if (event === 'markup.onChanged') {
-          if (pendingViewNav) {
-            // First markup change after view.onViewAction = navigation
-            pendingViewNav = false;
-            clearTimeout(pendingViewTimer);
-            viewNavigating = true;
-            clearTimeout(autoAddTimer);
-            points = []; ptSeq = 0;
-            renderTable();
-            log('View navigation detected — list cleared');
-          }
-          if (viewNavigating) {
-            // Debounce snapshot while more markup events arrive during restore
-            clearTimeout(viewNavSnapshotTimer);
-            viewNavSnapshotTimer = setTimeout(async () => {
-              try {
-                const existing = await API.markup.getSinglePointMarkups();
-                ignoredIds = new Set(existing.map((m, i) => markupId(m, i)));
-              } catch(e) { log(`Snapshot error: ${e?.message ?? e}`, 'err'); }
-              viewNavigating = false;
-            }, 800);
-            return;
-          }
-        }
-
-        if (event === 'markup.onChanged' || event === 'viewer.onPicked') {
+        if (event === 'viewer.onMarkupChanged' || event === 'viewer.onPicked') {
           if (!renamingInProgress) {
             clearTimeout(autoAddTimer);
             autoAddTimer = setTimeout(autoAddNew, 250);
